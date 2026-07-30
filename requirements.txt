@@ -1,0 +1,5 @@
+pywebview>=5.3
+pyserial>=3.5
+cantools>=39.4
+reportlab>=4.2
+pyinstaller>=6.21

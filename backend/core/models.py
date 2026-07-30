@@ -1,0 +1,127 @@
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+from enum import Enum
+
+
+class Source(str, Enum):
+    JIG = "JIG"
+    DUT = "DUT"
+    UNKNOWN = "UNKNOWN"
+
+
+@dataclass(frozen=True)
+class CanFrame:
+    timestamp: float
+    can_id: int
+    source: Source
+    message_name: str
+    dlc: int
+    payload: bytes
+    signals: dict[str, float]
+
+    def to_dict(self) -> dict:
+        return {
+            "timestamp": self.timestamp,
+            "can_id": self.can_id,
+            "can_id_hex": f"0x{self.can_id:03X}",
+            "source": self.source.value,
+            "message_name": self.message_name,
+            "dlc": self.dlc,
+            "payload_hex": self.payload.hex(" ").upper(),
+            "signals": self.signals,
+        }
+
+
+class ParamStatus(str, Enum):
+    PENDING = "PENDING"
+    PASS = "PASS"
+    FAIL = "FAIL"
+    WARN = "WARN"
+
+
+@dataclass
+class TestParameter:
+    name: str
+    unit: str
+    expected_value: float
+    tolerance: float
+    source: Source
+    signal_name: str
+    measured_source: Source
+    measured_signal_name: str
+    measured_value: float | None = None
+    status: ParamStatus = ParamStatus.PENDING
+
+    @property
+    def deviation_value(self) -> float | None:
+        if self.measured_value is None:
+            return None
+        return self.measured_value - self.expected_value
+
+    @property
+    def deviation_pct(self) -> float | None:
+        if self.measured_value is None or self.expected_value == 0:
+            return None
+        return (self.measured_value - self.expected_value) / self.expected_value * 100.0
+
+    def evaluate(self) -> None:
+        if self.measured_value is None:
+            self.status = ParamStatus.PENDING
+            return
+        dev = abs(self.measured_value - self.expected_value)
+        self.status = ParamStatus.PASS if dev <= self.tolerance else ParamStatus.FAIL
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "unit": self.unit,
+            "expected_value": self.expected_value,
+            "tolerance": self.tolerance,
+            "measured_value": self.measured_value,
+            "deviation_value": self.deviation_value,
+            "deviation_pct": self.deviation_pct,
+            "status": self.status.value,
+        }
+
+
+@dataclass
+class TestRun:
+    run_id: str
+    start_time: float
+    end_time: float | None = None
+    phase: str = ""
+    parameters: list[TestParameter] = field(default_factory=list)
+
+    @property
+    def overall_pass(self) -> bool | None:
+        if not self.parameters:
+            return None
+        if any(p.status == ParamStatus.PENDING for p in self.parameters):
+            return None
+        return all(p.status == ParamStatus.PASS for p in self.parameters)
+
+    def to_dict(self) -> dict:
+        return {
+            "run_id": self.run_id,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "phase": self.phase,
+            "overall_pass": self.overall_pass,
+            "parameters": [p.to_dict() for p in self.parameters],
+        }
+
+
+@dataclass(frozen=True)
+class LogEntry:
+    timestamp: float
+    level: str  # INFO, RECV, WARN, ERROR
+    message: str
+
+    @staticmethod
+    def now(level: str, message: str) -> "LogEntry":
+        return LogEntry(timestamp=time.time(), level=level, message=message)
+
+    def to_dict(self) -> dict:
+        return {"timestamp": self.timestamp, "level": self.level, "message": self.message}

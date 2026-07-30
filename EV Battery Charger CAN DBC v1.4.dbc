@@ -1,0 +1,197 @@
+VERSION ""
+
+
+NS_ : 
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	SIGTYPE_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_SG_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+	SG_MUL_VAL_
+
+BS_:
+
+BU_: BatteryCharger
+
+
+BO_ 3221225472 VECTOR__INDEPENDENT_SIG_MSG: 0 Vector__XXX
+ SG_ Reserved : 12|1@0+ (1,0) [0|0] "" Vector__XXX
+ SG_ NewSignal_0026 : 23|8@0+ (1,0) [0|0] "" Vector__XXX
+ SG_ Index0 m0 : 7|16@0+ (1,0) [0|2] "" Vector__XXX
+ SG_ Index1 m1 : 7|16@0+ (1,0) [0|2] "" Vector__XXX
+ SG_ ChargerStateSet : 0|8@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ ChargingVoltageSetpoint : 8|16@1+ (1,0) [0|65535] "V" Vector__XXX
+ SG_ ChargingCurrentSetpoint : 24|16@1+ (1,0) [0|65535] "A" Vector__XXX
+ SG_ Slave0ChargerState : 0|3@1+ (1,0) [0|7] "" Vector__XXX
+ SG_ Slave0ChargingMode : 5|3@0+ (1,0) [0|7] "" Vector__XXX
+ SG_ Slave0CC_CV_StateofCharger : 7|2@0+ (1,0) [0|3] "" Vector__XXX
+ SG_ Slave0ChargerVoltage : 8|16@1+ (0.01,0) [0|10000] "V" Vector__XXX
+ SG_ Slave0ChargerCurrent : 24|16@1+ (0.01,0) [0|4000] "A" Vector__XXX
+ SG_ Slave0_gfci_fault : 40|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ Slave0_overtemperature_fault : 41|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ Slave0_overcurrent_fault : 42|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ Slave0_shortcircuit_fault : 43|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ Slave0_overvoltage_fault : 44|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ Slave0_undervoltage_fault : 45|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ Slave0_acundervoltage_fault : 46|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ Slave0_acovervoltage_fault : 47|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ Slave0_pfc_fault : 48|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ Slave0_cancommfail : 49|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ Slave0_openload_fault : 50|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ Slave0_nocurrent_fault : 51|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ Comm_Char : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ Actual_Value : 15|16@0+ (0.01,0) [0|65535] "" Vector__XXX
+ SG_ CAN_Baudrate : 7|8@0+ (1,0) [0|3] "" Vector__XXX
+ SG_ CAN_BaudrateChangeFlag : 15|8@0+ (1,0) [0|0] "" Vector__XXX
+ SG_ CAN_Debug_Enable : 23|8@0+ (1,0) [0|0] "" Vector__XXX
+ SG_ Char1 : 0|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Char2 : 8|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Char3 : 16|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Char4 : 24|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Char5 : 32|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Char6 : 40|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Char7 : 48|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Char8 : 56|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Charger_CommChar1 : 0|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Charger_CommChar2 : 8|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Charger_CommChar3 : 16|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Charger_Command1 : 24|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Charger_Command2 : 32|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Charger_Command3 : 40|8@1+ (1,0) [0|255] "" Vector__XXX
+ SG_ Charger_Command4 : 48|8@1+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 2432505130 ACDCParameters_0: 8 BatteryCharger
+ SG_ CurrentReference : 7|16@0+ (0.01,0) [0|4000] "A" Vector__XXX
+ SG_ VoltageReference : 23|16@0+ (0.01,0) [0|10000] "V" Vector__XXX
+ SG_ BatteryCurrent : 39|16@0+ (0.01,0) [0|4000] "A" Vector__XXX
+ SG_ BatteryVoltage : 55|16@0+ (0.01,0) [0|10000] "V" Vector__XXX
+
+BO_ 2432505132 ChargerState: 8 BatteryCharger
+ SG_ gfci_fault : 0|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ overtemperature_fault : 1|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ overcurrent_fault : 2|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ shortcircuit_fault : 3|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ overvoltage_fault : 4|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ undervoltage_fault : 5|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ acundervoltage_fault : 6|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ acovervoltage_fault : 7|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ pfc_fault : 8|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ cancommfail : 9|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ charginghalted_fault : 10|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ chargingnotstarted_fault : 11|1@0+ (1,0) [0|1] "" Vector__XXX
+ SG_ ChargerState : 23|8@0+ (1,0) [0|4] "" Vector__XXX
+ SG_ ChargingMode : 31|8@0+ (1,0) [0|4] "" Vector__XXX
+ SG_ CANBaudrate : 39|8@0+ (1,0) [0|4] "" Vector__XXX
+ SG_ reversepolarity_fault : 12|1@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 2432505133 ChargerDetails: 8 BatteryCharger
+ SG_ HardwareVersion : 7|8@0+ (0.1,0) [0|100] "" Vector__XXX
+ SG_ FirmwareVersion : 15|8@0+ (0.1,0) [0|100] "" Vector__XXX
+ SG_ DesignedVoltage : 23|8@0+ (1,0) [0|100] "V" Vector__XXX
+ SG_ DesignedCurrent : 31|8@0+ (1,0) [0|40] "A" Vector__XXX
+
+BO_ 2432505131 ACDCParameters_1: 8 BatteryCharger
+ SG_ ACMains : 7|16@0+ (0.1,0) [0|4000] "V" Vector__XXX
+ SG_ Temperature2 : 23|8@0- (1,0) [0|0] "Celius" Vector__XXX
+ SG_ Temperature3 : 31|8@0- (1,0) [0|0] "Celius" Vector__XXX
+ SG_ TemperatureIn : 39|8@0- (1,0) [0|0] "Celius" Vector__XXX
+ SG_ AC_Current : 47|16@0- (0.01,0) [0|0] "" Vector__XXX
+
+
+
+CM_ SG_ 3221225472 ChargerStateSet "0  -  OFF, 
+1  -  ON";
+CM_ SG_ 3221225472 Slave0_gfci_fault "0 = no fault, 1 = fault
+";
+CM_ SG_ 3221225472 Slave0_overtemperature_fault "0 = no fault, 1 = fault";
+CM_ SG_ 3221225472 Slave0_overcurrent_fault "0 = no fault, 1 = fault";
+CM_ SG_ 3221225472 Slave0_shortcircuit_fault "0 = no fault, 1 = fault";
+CM_ SG_ 3221225472 Slave0_overvoltage_fault "0 = no fault, 1 = fault";
+CM_ SG_ 3221225472 Slave0_undervoltage_fault "0 = no fault, 1 = fault";
+CM_ SG_ 3221225472 Slave0_acundervoltage_fault "0 = no fault, 1 = fault";
+CM_ SG_ 3221225472 Slave0_acovervoltage_fault "0 = no fault, 1 = fault";
+CM_ SG_ 3221225472 Slave0_pfc_fault "0 = no fault, 1 = fault";
+CM_ SG_ 3221225472 Slave0_cancommfail "0 = no fault, 1 = fault";
+CM_ SG_ 3221225472 Slave0_openload_fault "0 = no fault, 1 = fault";
+CM_ SG_ 3221225472 Slave0_nocurrent_fault "0 = no fault, 1 = fault";
+CM_ SG_ 3221225472 Comm_Char "calibration command 
+
+'A' = Voltage calibration
+'B'  = Current calibration";
+CM_ SG_ 3221225472 Actual_Value "If 
+Voltage calibration : Unit V
+Current calibration : Unit A";
+CM_ SG_ 3221225472 CAN_Baudrate "Default CAN Baudrate - 250 Kbps
+
+0 = 125 Kbps
+1 = 250 Kbps
+2 = 500 Kbps
+3 = 1 Mbps";
+CM_ SG_ 3221225472 CAN_BaudrateChangeFlag "if CAN_BaudrateChangeFlag = 1,
+then only then baudrate will be change.";
+CM_ SG_ 3221225472 CAN_Debug_Enable "0-disable, 1-enable";
+CM_ SG_ 2432505130 CurrentReference "eg: 1526 * 0.01 = 15.26 A";
+CM_ SG_ 2432505130 VoltageReference "eg: 5685 * 0.01 = 56.85 V
+
+";
+CM_ SG_ 2432505132 gfci_fault "0 = no fault, 1 = fault";
+CM_ SG_ 2432505132 overtemperature_fault "0 = no fault, 1 = fault";
+CM_ SG_ 2432505132 overcurrent_fault "0 = no fault, 1 = fault";
+CM_ SG_ 2432505132 shortcircuit_fault "0 = no fault, 1 = fault";
+CM_ SG_ 2432505132 overvoltage_fault "0 = no fault, 1 = fault";
+CM_ SG_ 2432505132 undervoltage_fault "0 = no fault, 1 = fault";
+CM_ SG_ 2432505132 acundervoltage_fault "0 = no fault, 1 = fault";
+CM_ SG_ 2432505132 acovervoltage_fault "0 = no fault, 1 = fault";
+CM_ SG_ 2432505132 pfc_fault "0 = no fault, 1 = fault";
+CM_ SG_ 2432505132 cancommfail "0 = no fault, 1 = fault";
+CM_ SG_ 2432505132 charginghalted_fault "0 = no fault, 1 = fault";
+CM_ SG_ 2432505132 chargingnotstarted_fault "0 = no fault, 1 = fault";
+CM_ SG_ 2432505132 ChargerState "ChargerState
+
+0 = ideal
+1 = charging
+2 = standby
+3 = battery failure
+4 = charger failure";
+CM_ SG_ 2432505132 ChargingMode "Charging Mode
+
+0 = none
+1 = precharge
+2 = cc
+3 = cv
+4 = charging completed";
+CM_ SG_ 2432505132 CANBaudrate "CAN Baudrate
+
+0 = 125 Kbps
+1 = 250 Kbps
+2 = 500 Kbps
+3 = 1 Mbps";
+CM_ SG_ 2432505132 reversepolarity_fault "0 = no fault, 1 = fault";
+CM_ SG_ 2432505133 FirmwareVersion "eg: 11 * 0.1 = v1.1";
+CM_ SG_ 2432505133 DesignedVoltage "DesignedVoltage = 48 V, DesignedCurrent = 15 A, Model No = 48V15A";
+CM_ SG_ 2432505133 DesignedCurrent "DesignedVoltage = 48 V, DesignedCurrent = 15 A, Model No = 48V15A";
+CM_ SG_ 2432505131 ACMains "eg: 2212 * 0.1 = 221.2
+";
+

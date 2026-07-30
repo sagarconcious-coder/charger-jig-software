@@ -1,0 +1,85 @@
+{
+  "phases": ["Idle", "Precharge", "CC Mode", "CV Mode", "Complete"],
+  "parameters": [
+    {
+      "name": "AC Voltage",
+      "unit": "V",
+      "expected_value": 220.0,
+      "tolerance": 5.0,
+      "source": "JIG",
+      "signal_name": "mains_sense_dV",
+      "measured_source": "DUT",
+      "measured_signal_name": "ACMains"
+    },
+    {
+      "name": "AC Current",
+      "unit": "A",
+      "expected_value": 1.2,
+      "tolerance": 0.1,
+      "source": "JIG",
+      "signal_name": "ac_current_cA",
+      "measured_source": "DUT",
+      "measured_signal_name": "AC_Current"
+    },
+    {
+      "name": "AC Power",
+      "unit": "W",
+      "expected_value": 285.0,
+      "tolerance": 20.0,
+      "source": "JIG",
+      "signal_name": "ac_power_cW",
+      "measured_source": "JIG",
+      "measured_signal_name": "ac_power_cW"
+    },
+    {
+      "name": "Power Factor",
+      "unit": "",
+      "expected_value": 0.95,
+      "tolerance": 0.05,
+      "source": "JIG",
+      "signal_name": "ac_power_factor_pct",
+      "measured_source": "JIG",
+      "measured_signal_name": "ac_power_factor_pct"
+    },
+    {
+      "name": "PFC Voltage",
+      "unit": "V",
+      "expected_value": 393.0,
+      "tolerance": 5.0,
+      "source": "JIG",
+      "signal_name": "pfc_voltage_v",
+      "measured_source": "JIG",
+      "measured_signal_name": "pfc_voltage_v"
+    },
+    {
+      "name": "15V Sense",
+      "unit": "V",
+      "expected_value": 14.0,
+      "tolerance": 1.0,
+      "source": "JIG",
+      "signal_name": "pfc_15v_sense_v",
+      "measured_source": "JIG",
+      "measured_signal_name": "pfc_15v_sense_v"
+    },
+    {
+      "name": "Battery Voltage",
+      "unit": "V",
+      "expected_value": 51.5,
+      "tolerance": 0.5,
+      "source": "JIG",
+      "signal_name": "batt_voltage_mv",
+      "measured_source": "DUT",
+      "measured_signal_name": "BatteryVoltage"
+    },
+    {
+      "name": "Battery Current",
+      "unit": "A",
+      "expected_value": 5.0,
+      "tolerance": 0.5,
+      "source": "JIG",
+      "signal_name": "batt_curr_sense_mv",
+      "measured_source": "DUT",
+      "measured_signal_name": "BatteryCurrent"
+    }
+  ]
+}

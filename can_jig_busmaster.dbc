@@ -1,0 +1,135 @@
+VERSION ""
+
+
+NS_ : 
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	SIGTYPE_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_SG_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+	SG_MUL_VAL_
+
+BS_:
+
+BU_: JIG
+
+
+BO_ 2566873249 ADC_BROADCAST_FAN_BUZZ: 8 JIG
+ SG_ frame_index : 0|8@1+ (1,0) [0|255] ""  JIG
+ SG_ fan_sense_main_board_mv : 16|16@1+ (0.001,0) [0|65535] "V"  JIG
+ SG_ buzz_sense_main_board_mv : 32|16@1+ (0.001,0) [0|65535] "V"  JIG
+
+BO_ 2566873250 ADC_BROADCAST_12V_5V: 8 JIG
+ SG_ frame_index : 0|8@1+ (1,0) [0|255] ""  JIG
+ SG_ twelve_v_sense_main_board_mv : 16|16@1+ (0.001,0) [0|65535] "V"  JIG
+ SG_ five_v_sense_main_board_mv : 32|16@1+ (0.001,0) [0|65535] "V"  JIG
+
+BO_ 2566873251 ADC_BROADCAST_TEMP1_TEMP2: 8 JIG
+ SG_ frame_index : 0|8@1+ (1,0) [0|255] ""  JIG
+ SG_ temp1_c : 16|16@1- (0.1,0) [-3276.8|3276.7] "degC"  JIG
+ SG_ temp2_c : 32|16@1- (0.1,0) [-3276.8|3276.7] "degC"  JIG
+
+BO_ 2566873252 ADC_BROADCAST_TEMP3_BATTV: 8 JIG
+ SG_ frame_index : 0|8@1+ (1,0) [0|255] ""  JIG
+ SG_ temp3_c : 16|16@1- (0.1,0) [-3276.8|3276.7] "degC"  JIG
+ SG_ batt_voltage_mv : 32|16@1+ (0.001,0) [0|65535] "V"  JIG
+
+BO_ 2566873253 ADC_BROADCAST_BATTCURR_TEMP4: 8 JIG
+ SG_ frame_index : 0|8@1+ (1,0) [0|255] ""  JIG
+ SG_ batt_curr_sense_mv : 16|16@1+ (0.001,0) [0|65535] "A"  JIG
+ SG_ temp4_c : 32|16@1- (0.1,0) [-3276.8|3276.7] "degC"  JIG
+
+BO_ 2566873254 JIG_METRICS_0: 8 JIG
+ SG_ mains_sense_dV : 0|32@1+ (0.1,0) [0|4294967295] "V"  JIG
+ SG_ ac_current_cA : 32|32@1- (0.01,0) [-2147483648|2147483647] "A"  JIG
+
+BO_ 2566873255 JIG_METRICS_1: 8 JIG
+ SG_ ac_power_cW : 0|32@1+ (0.01,0) [0|4294967295] "W"  JIG
+ SG_ ac_app_power_cVA : 32|32@1+ (0.01,0) [0|4294967295] "VA"  JIG
+
+BO_ 2566873256 JIG_METRICS_2: 8 JIG
+ SG_ ac_power_factor_pct : 0|16@1- (0.01,0) [-32768|32767] "%"  JIG
+ SG_ charger_efficiency_pct : 16|16@1+ (1,0) [0|65535] "%"  JIG
+
+BO_ 2566873257 PFC_BROADCAST_0: 8 JIG
+ SG_ reserved_0 : 0|16@1+ (1,0) [0|65535] ""  JIG
+ SG_ pfc_voltage_v : 16|16@1+ (0.01,0) [0|655.35] "V"  JIG
+ SG_ pfc_15v_sense_v : 32|16@1+ (0.01,0) [0|655.35] "V"  JIG
+ SG_ pfc_15v_relay_sense_v : 48|16@1+ (0.01,0) [0|655.35] "V"  JIG
+
+BO_ 2566922256 JIG_STATUS: 8 JIG
+ SG_ jig_status : 0|8@1+ (1,0) [0|255] ""  JIG
+
+BO_ 2566922272 JIG_DETAILS: 8 JIG
+ SG_ test_jig_start : 0|8@1+ (1,0) [0|1] ""  JIG
+ SG_ firmware_version : 8|8@1+ (0.1,0) [0|25.5] ""  JIG
+ SG_ hardware_version : 16|8@1+ (0.1,0) [0|25.5] ""  JIG
+ SG_ test_voltage : 24|8@1+ (1,0) [0|255] "V"  JIG
+ SG_ test_current : 32|8@1+ (1,0) [0|255] "A"  JIG
+
+
+
+CM_ BO_ 2566873249 "ADC mapped frame 0: FAN_SENSE_MAIN_BOARD and BUZZ_SENSE_MAIN_BOARD.";
+CM_ BO_ 2566873250 "ADC mapped frame 1: 12V_SENSE_MAIN_BOARD and 5V_SENSE_MAIN_BOARD.";
+CM_ BO_ 2566873251 "ADC mapped frame 2: TEMP1 and TEMP2.";
+CM_ BO_ 2566873252 "ADC mapped frame 3: TEMP3 and BATT_VOLTAGE.";
+CM_ BO_ 2566873253 "ADC mapped frame 4: BATT_CURR_SENSE and TEMP4.";
+CM_ BO_ 2566873254 "Live AC metering values: mains sense and current.";
+CM_ BO_ 2566873255 "Live AC metering values: real and apparent power.";
+CM_ BO_ 2566873256 "Live AC metering values: power factor and charger efficiency.";
+CM_ BO_ 2566873257 "PFC values: PFC voltage, 15V sense, and 15V relay sense.";
+CM_ BO_ 2566922256 "Jig status flag broadcast.";
+CM_ BO_ 2566922272 "Jig details: test start flag, firmware/hardware version, test voltage and current.";
+BA_DEF_  "BusType" STRING ;
+BA_DEF_ BO_  "GenMsgCycleTime" INT 0 65535;
+BA_DEF_ BO_  "VFrameFormat" ENUM  "StandardCAN","ExtendedCAN";
+BA_DEF_DEF_  "BusType" "CAN";
+BA_DEF_DEF_  "GenMsgCycleTime" 0;
+BA_DEF_DEF_  "VFrameFormat" "StandardCAN";
+BA_ "BusType" "CAN";
+BA_ "GenMsgCycleTime" BO_ 2566873249 100;
+BA_ "VFrameFormat" BO_ 2566873249 1;
+BA_ "GenMsgCycleTime" BO_ 2566873250 100;
+BA_ "VFrameFormat" BO_ 2566873250 1;
+BA_ "GenMsgCycleTime" BO_ 2566873251 100;
+BA_ "VFrameFormat" BO_ 2566873251 1;
+BA_ "GenMsgCycleTime" BO_ 2566873252 100;
+BA_ "VFrameFormat" BO_ 2566873252 1;
+BA_ "GenMsgCycleTime" BO_ 2566873253 100;
+BA_ "VFrameFormat" BO_ 2566873253 1;
+BA_ "GenMsgCycleTime" BO_ 2566873254 60;
+BA_ "VFrameFormat" BO_ 2566873254 1;
+BA_ "GenMsgCycleTime" BO_ 2566873255 60;
+BA_ "VFrameFormat" BO_ 2566873255 1;
+BA_ "GenMsgCycleTime" BO_ 2566873256 60;
+BA_ "VFrameFormat" BO_ 2566873256 1;
+BA_ "GenMsgCycleTime" BO_ 2566873257 60;
+BA_ "VFrameFormat" BO_ 2566873257 1;
+BA_ "GenMsgCycleTime" BO_ 2566922256 100;
+BA_ "VFrameFormat" BO_ 2566922256 1;
+BA_ "GenMsgCycleTime" BO_ 2566922272 1000;
+BA_ "VFrameFormat" BO_ 2566922272 1;
+VAL_ 2566922256 jig_status 1 "test start" 0 "test stop" ;
+
