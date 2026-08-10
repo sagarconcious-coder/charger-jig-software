@@ -3,3 +3,5 @@ pyserial>=3.5
 cantools>=39.4
 reportlab>=4.2
 pyinstaller>=6.21
+watchdog>=4.0
+requests>=2.31

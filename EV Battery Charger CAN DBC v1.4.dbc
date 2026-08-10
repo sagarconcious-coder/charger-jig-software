@@ -119,6 +119,10 @@ BO_ 2432505131 ACDCParameters_1: 8 BatteryCharger
  SG_ TemperatureIn : 39|8@0- (1,0) [0|0] "Celius" Vector__XXX
  SG_ AC_Current : 47|16@0- (0.01,0) [0|0] "" Vector__XXX
 
+BO_ 2432505162 Calibration_Comm_OverCAN: 8 Vector__XXX
+ SG_ Comm_Char : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ Actual_Value : 15|16@0+ (0.01,0) [0|65535] "" Vector__XXX
+
 
 
 CM_ SG_ 3221225472 ChargerStateSet "0  -  OFF, 
@@ -194,4 +198,11 @@ CM_ SG_ 2432505133 DesignedVoltage "DesignedVoltage = 48 V, DesignedCurrent = 15
 CM_ SG_ 2432505133 DesignedCurrent "DesignedVoltage = 48 V, DesignedCurrent = 15 A, Model No = 48V15A";
 CM_ SG_ 2432505131 ACMains "eg: 2212 * 0.1 = 221.2
 ";
+CM_ BO_ 2432505162 "Calibrate the voltage and current value of charger";
+CM_ SG_ 2432505162 Comm_Char "calibration command 
+'A' = Voltage calibration
+'B'  = Current calibration";
+CM_ SG_ 2432505162 Actual_Value "If 
+Voltage calibration : Unit V
+Current calibration : Unit A";
 

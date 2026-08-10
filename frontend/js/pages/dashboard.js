@@ -1,17 +1,44 @@
 (function () {
-  const JIG_TILES = [
+  // Paired rows: JIG value vs. DUT value side by side for direct comparison.
+  // dut:null means the DUT has no equivalent signal for that row.
+  const COMPARE_ROWS = [
     {
-      key: "ac_voltage_jig",
       label: "AC Voltage",
       unit: "V",
-      accent: "var(--accent-aqua)",
+      jig: "ac_voltage_jig",
+      dut: "ac_voltage_dut",
     },
     {
-      key: "ac_current_jig",
       label: "AC Current",
       unit: "A",
-      accent: "var(--accent-aqua)",
+      jig: "ac_current_jig",
+      dut: "ac_current_dut",
     },
+    {
+      label: "Battery Voltage",
+      unit: "V",
+      jig: "batt_voltage_jig",
+      dut: "batt_voltage_dut",
+    },
+    {
+      label: "Battery Current",
+      unit: "A",
+      jig: "batt_current_jig",
+      dut: "batt_current_dut",
+    },
+    {
+      // CR-01/4.1: JIG temp1_c compared against the DUT's temperature -
+      // taken as the max of Temperature2 and TemperatureIn (Temperature3 is
+      // not part of this comparison).
+      label: "Temperature",
+      unit: "°C",
+      jig: "temp1_jig",
+      dut: "temperature_dut_max",
+    },
+  ];
+
+  // JIG-only metrics with no DUT counterpart to compare against.
+  const JIG_ONLY_TILES = [
     {
       key: "ac_power_jig",
       label: "AC Power",
@@ -38,18 +65,6 @@
       accent: "var(--accent-aqua)",
     },
     {
-      key: "batt_voltage_jig",
-      label: "Battery Voltage",
-      unit: "V",
-      accent: "var(--accent-aqua)",
-    },
-    {
-      key: "batt_current_jig",
-      label: "Battery Current",
-      unit: "A",
-      accent: "var(--accent-aqua)",
-    },
-    {
       key: "efficiency_jig",
       label: "Efficiency",
       unit: "%",
@@ -58,48 +73,35 @@
     },
   ];
 
-  const DUT_TILES = [
-    {
-      key: "ac_voltage_dut",
-      label: "AC Voltage",
-      unit: "V",
-      accent: "var(--primary)",
-    },
-    {
-      key: "ac_current_dut",
-      label: "AC Current",
-      unit: "A",
-      accent: "var(--primary)",
-    },
-    {
-      key: "batt_voltage_dut",
-      label: "Battery Voltage",
-      unit: "V",
-      accent: "var(--primary)",
-    },
-    {
-      key: "batt_current_dut",
-      label: "Battery Current",
-      unit: "A",
-      accent: "var(--primary)",
-    },
+  const TILE_SPECS = [
+    ...JIG_ONLY_TILES,
+    ...COMPARE_ROWS.filter((r) => r.jig).map((r) => ({
+      key: r.jig,
+      unit: r.unit,
+    })),
+    ...COMPARE_ROWS.filter((r) => r.dut).map((r) => ({
+      key: r.dut,
+      unit: r.unit,
+    })),
   ];
 
-  const TILE_SPECS = [...JIG_TILES, ...DUT_TILES];
-
-  let recentFrames = [];
   let parameters = [];
   let phases = [];
   let started = false;
   let jigTestStarted = false;
+  let compareActive = false;
+  let runLocked = false;
 
-  const AC_POWER_FACTOR = 0.99;
   const latestJig = {
     acVoltage: null,
     acCurrent: null,
     battVoltage: null,
     battCurrent: null,
+    powerFactor: null,
   };
+  // Tracks the two DUT temperature signals feeding the single "Temperature"
+  // compare row, which displays whichever is higher.
+  const latestDutTemp = { temperature2: null, temperatureIn: null };
 
   function fmt(v, digits = 3) {
     return v === null || v === undefined ? "--" : Number(v).toFixed(digits);
@@ -108,7 +110,7 @@
   function render() {
     const root = document.getElementById("page-dashboard");
     root.innerHTML = `
-      <div id="dashRoot" style="height:calc(100vh - 64px - 64px);display:flex;flex-direction:column;overflow:hidden;">
+      <div id="dashRoot" style="min-height:calc(100vh - 64px - 64px);display:flex;flex-direction:column;">
       <div class="page-header" style="flex:0 0 auto;margin-bottom:10px;">
         <div><h1>Dashboard</h1><div class="page-sub">Live overview of JIG &amp; DUT signals and active test run</div></div>
       </div>
@@ -125,7 +127,8 @@
             <input type="number" id="dashBaudInput" value="115200" min="9600" max="3000000" />
           </div>
           <button class="btn btn-primary" id="dashConnectBtn">${icon("plug", 14)} Connect</button>
-          <button class="btn btn-danger" id="dashDisconnectBtn">${icon("unplug", 14)} Disconnect</button>
+          <button class="btn btn-danger" id="dashDisconnectBtn" style="display:none;">${icon("unplug", 14)} Disconnect</button>
+          <span id="dashConnectedBadge" class="badge badge-good" style="display:none;"><span class="dot"></span>CONNECTED</span>
         </div>
       </div>
 
@@ -136,21 +139,23 @@
           ${infoRow("Test Duration", `<span id="testDurationVal" class="tabular">00:00:00</span>`)}
           ${infoRow("Start Time", `<span id="testStartVal" class="tabular">--:--:--</span>`)}
           ${infoRow("Stop Time", `<span id="testStopVal" class="tabular">--:--:--</span>`)}
+          ${infoRow("Firmware Version", `<span id="firmwareVersionVal" class="tabular">--</span>`)}
+          ${infoRow("Hardware Version", `<span id="hardwareVersionVal" class="tabular">--</span>`)}
         </div>
 
         <div class="card card-pad" style="padding:10px 14px;">
           <h3 style="margin:0 0 8px;font-size:11.5px;letter-spacing:.4px;color:var(--text-secondary);">LIVE MEASUREMENTS</h3>
-          <div style="display:flex;gap:16px;align-items:flex-start;">
-            <div style="flex:1;min-width:0;">
-              <div style="font-size:10.5px;font-weight:700;letter-spacing:.4px;color:var(--accent-aqua);margin-bottom:6px;">JIG</div>
-              <div class="stat-grid" id="tileGridJig" style="margin-bottom:0;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px;"></div>
-            </div>
-            <div style="width:1px;align-self:stretch;background:var(--border);"></div>
-            <div style="flex:1;min-width:0;">
-              <div style="font-size:10.5px;font-weight:700;letter-spacing:.4px;color:var(--primary);margin-bottom:6px;">CHARGER</div>
-              <div class="stat-grid" id="tileGridDut" style="margin-bottom:0;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px;"></div>
-            </div>
+
+          <div class="compare-head">
+            <div></div>
+            <div class="compare-head-col" style="color:var(--accent-aqua);">JIG</div>
+            <div class="compare-head-col" style="color:var(--primary);">CHARGER (DUT)</div>
           </div>
+          <div id="compareRows"></div>
+
+          <div class="divider-line" style="margin:12px 0;"></div>
+          <div style="font-size:10.5px;font-weight:700;letter-spacing:.4px;color:var(--accent-aqua);margin-bottom:6px;">JIG ONLY</div>
+          <div class="stat-grid" id="tileGridJigOnly" style="margin-bottom:0;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px;"></div>
         </div>
 
         <div class="card card-pad" style="padding:10px 14px;">
@@ -170,10 +175,13 @@
         </div>
       </div>
 
-      <div class="grid-3" style="flex:1 1 auto;min-height:0;grid-template-columns: 1fr 220px; margin-bottom:10px;">
-        <div class="card" style="display:flex;flex-direction:column;min-height:0;">
-          <div class="card-header" style="flex:0 0 auto;"><h3>PARAMETER COMPARISON</h3></div>
-          <div class="table-scroll" style="flex:1 1 auto;min-height:0;">
+      <div class="grid-3" style="flex:0 0 auto;grid-template-columns: 1fr 220px; margin-bottom:10px;">
+        <div class="card" style="display:flex;flex-direction:column;">
+          <div class="card-header" style="flex:0 0 auto;">
+            <h3>PARAMETER COMPARISON</h3>
+            <button class="btn btn-primary btn-sm" id="compareBtn">${icon("plug", 13)} COMPARE</button>
+          </div>
+          <div>
             <table class="data-table">
               <thead><tr>
                 <th>Parameter</th><th>Unit</th><th>Expected</th><th>Tolerance</th>
@@ -184,7 +192,7 @@
           </div>
         </div>
 
-        <div class="card card-pad" style="text-align:center;padding:10px 14px;overflow:auto;">
+        <div class="card card-pad" style="text-align:center;padding:10px 14px;">
           <h3 style="margin:0 0 8px;font-size:11.5px;letter-spacing:.4px;color:var(--text-secondary);">OVERALL RESULT</h3>
           <div id="overallBadge" style="width:56px;height:56px;border-radius:50%;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;background:var(--bg-elevated);border:3px solid var(--border-strong);">${icon("clock", 24)}</div>
           <div id="overallLabel" style="font-size:16px;font-weight:800;color:var(--text-muted);margin-bottom:8px;">--</div>
@@ -192,22 +200,15 @@
           ${infoRow("Total Parameters", `<span id="totalParamsVal">0</span>`)}
           ${infoRow("Passed", `<span id="passedVal" style="color:#4ade80;">0</span>`)}
           ${infoRow("Failed", `<span id="failedVal" style="color:#ff8a8a;">0</span>`)}
+          <button class="btn btn-danger btn-sm" id="lockBtn" style="width:100%;justify-content:center;margin:8px 0;">${icon("check_circle", 13)} LOCK</button>
           <div class="divider-line"></div>
           <div style="display:flex;gap:8px;">
             <button class="btn btn-ghost btn-sm" id="saveCsvBtn" style="flex:1;justify-content:center;">${icon("download", 13)} CSV</button>
             <button class="btn btn-ghost btn-sm" id="savePdfBtn" style="flex:1;justify-content:center;">${icon("download", 13)} PDF</button>
           </div>
+          <button class="btn btn-primary btn-sm" id="sendSnapshotBtn" style="width:100%;justify-content:center;margin-top:8px;">${icon("plug", 13)} Send Snapshot</button>
+          <div id="snapshotStatus" style="margin-top:6px;font-size:11px;color:var(--text-muted);text-align:center;"></div>
         </div>
-      </div>
-
-      <div class="card" style="flex:0 0 auto;">
-        <div class="card-header" style="padding:8px 14px;"><h3>RECENT CAN MESSAGES</h3>
-          <button class="btn btn-ghost btn-sm" id="viewAllMsgBtn">VIEW ALL</button>
-        </div>
-        <table class="data-table">
-          <thead><tr><th>Time</th><th>ID</th><th>Source</th><th>DLC</th><th>Data</th></tr></thead>
-          <tbody id="msgTableBody"></tbody>
-        </table>
       </div>
       </div>
     `;
@@ -243,9 +244,65 @@
       .join("");
   }
 
+  // CR-03: parameter name in test_profile.json that gates each row's calibration button.
+  const CALIBRATION_PARAM_BY_LABEL = {
+    "Battery Voltage": "Battery Voltage",
+    "Battery Current": "Battery Current",
+  };
+
+  function renderCompareRows() {
+    const wrap = document.getElementById("compareRows");
+    if (!wrap) return;
+    wrap.innerHTML = COMPARE_ROWS.map((r) => {
+      const jigCell = r.jig
+        ? `<div class="compare-row-val jig" id="tile-${r.jig}">--<span class="unit">${r.unit}</span></div>`
+        : `<div class="compare-row-val jig">--</div>`;
+      const dutCell = r.dut
+        ? `<div class="compare-row-val dut" id="tile-${r.dut}">--<span class="unit">${r.unit}</span></div>`
+        : `<div class="compare-row-val dut">--</div>`;
+      const calibParam = CALIBRATION_PARAM_BY_LABEL[r.label];
+      const calibBtn = calibParam
+        ? `<button class="btn btn-ghost btn-sm calib-btn" style="display:none;" data-param="${calibParam}">${icon("check_circle", 12)} Calibrate</button>`
+        : "";
+      return `
+      <div class="compare-row">
+        <div class="compare-row-label">${r.label}${calibBtn}</div>
+        ${jigCell}
+        ${dutCell}
+      </div>`;
+    }).join("");
+
+    wrap.querySelectorAll(".calib-btn").forEach((btn) => {
+      btn.addEventListener("click", () => onCalibrate(btn.dataset.param, btn));
+    });
+  }
+
+  // CR-03: show the Calibrate button only while that parameter's live status
+  // is PASS (i.e. measured value within tolerance); hide it otherwise so a
+  // stale/hidden button can never be triggered.
+  function updateCalibrationButtons() {
+    const wrap = document.getElementById("compareRows");
+    if (!wrap) return;
+    wrap.querySelectorAll(".calib-btn").forEach((btn) => {
+      const param = parameters.find((p) => p.name === btn.dataset.param);
+      btn.style.display = param && param.status === "PASS" ? "" : "none";
+    });
+  }
+
+  async function onCalibrate(paramName, btn) {
+    btn.disabled = true;
+    const res = await Backend.api().send_calibration(paramName);
+    btn.disabled = false;
+    if (res.ok) {
+      App.toast(`${paramName} calibration sent (${fmt(res.value, 3)})`, "success");
+    } else {
+      App.toast(res.error || `Failed to calibrate ${paramName}`, "error");
+    }
+  }
+
   function renderTiles() {
-    renderTileGroup("tileGridJig", JIG_TILES);
-    renderTileGroup("tileGridDut", DUT_TILES);
+    renderCompareRows();
+    renderTileGroup("tileGridJigOnly", JIG_ONLY_TILES);
   }
 
   function setTile(key, value, digits = 3) {
@@ -269,38 +326,69 @@
         setTile("batt_voltage_jig", s.batt_voltage_mv);
       if ("batt_curr_sense_mv" in s)
         setTile("batt_current_jig", s.batt_curr_sense_mv * 10);
+      if ("temp1_c" in s) setTile("temp1_jig", s.temp1_c, 1);
 
       if ("mains_sense_dV" in s) latestJig.acVoltage = s.mains_sense_dV;
       if ("ac_current_cA" in s) latestJig.acCurrent = s.ac_current_cA;
       if ("batt_voltage_mv" in s) latestJig.battVoltage = s.batt_voltage_mv;
       if ("batt_curr_sense_mv" in s)
-        latestJig.battCurrent = s.batt_curr_sense_mv * 100;
+        latestJig.battCurrent = s.batt_curr_sense_mv * 10;
+      // ac_power_factor_pct is DBC-scaled (0.01) to a 0-100 percentage; the
+      // efficiency calc below needs it as a 0-1 fraction of real input power.
+      if ("ac_power_factor_pct" in s)
+        latestJig.powerFactor = s.ac_power_factor_pct / 100.0;
       updateEfficiencyTile();
 
       if ("jig_status" in s) updateJigTestStatus(s.jig_status === 1);
+      if ("firmware_version" in s)
+        document.getElementById("firmwareVersionVal").textContent = fmt(
+          s.firmware_version,
+          1,
+        );
+      if ("hardware_version" in s)
+        document.getElementById("hardwareVersionVal").textContent = fmt(
+          s.hardware_version,
+          1,
+        );
     } else if (frame.source === "DUT") {
       if ("ACMains" in s) setTile("ac_voltage_dut", s.ACMains);
       if ("AC_Current" in s) setTile("ac_current_dut", s.AC_Current);
       if ("BatteryVoltage" in s) setTile("batt_voltage_dut", s.BatteryVoltage);
       if ("BatteryCurrent" in s) setTile("batt_current_dut", s.BatteryCurrent);
+      if ("Temperature2" in s) latestDutTemp.temperature2 = s.Temperature2;
+      if ("TemperatureIn" in s) latestDutTemp.temperatureIn = s.TemperatureIn;
+      if ("Temperature2" in s || "TemperatureIn" in s) updateDutTempTile();
     }
   }
 
+  // CR-01/4.1: DUT temperature display is the higher of Temperature2 /
+  // TemperatureIn (both from ACDCParameters_1); Temperature3 is not shown.
+  function updateDutTempTile() {
+    const { temperature2, temperatureIn } = latestDutTemp;
+    if (temperature2 == null && temperatureIn == null) return;
+    const values = [temperature2, temperatureIn].filter((v) => v != null);
+    setTile("temperature_dut_max", Math.max(...values), 1);
+  }
+
+  // CR-02: efficiency must come from real AC input power (V * A * PF, using
+  // the live-measured power factor) - not a hardcoded PF fudge factor.
   function updateEfficiencyTile() {
-    const { acVoltage, acCurrent, battVoltage, battCurrent } = latestJig;
+    const { acVoltage, acCurrent, battVoltage, battCurrent, powerFactor } =
+      latestJig;
     if (
       acVoltage == null ||
       acCurrent == null ||
       battVoltage == null ||
-      battCurrent == null
+      battCurrent == null ||
+      powerFactor == null
     )
       return;
 
-    const inputPower = acVoltage * acCurrent * AC_POWER_FACTOR;
+    const inputPower = acVoltage * acCurrent * powerFactor;
     if (inputPower <= 0) return;
 
     const outputPower = battVoltage * battCurrent;
-    setTile("efficiency_jig", (outputPower / inputPower) * 100, 2);
+    setTile("efficiency_jig", ((outputPower / inputPower) * 100) / 10, 2);
   }
 
   function updateJigTestStatus(isStarted) {
@@ -319,39 +407,6 @@
     } else {
       Backend.api().stop_test();
     }
-  }
-
-  function addFrameRow(frame) {
-    recentFrames.unshift(frame);
-    if (recentFrames.length > 200) recentFrames.pop();
-    renderFrameRows();
-  }
-
-  function renderFrameRows() {
-    const body = document.getElementById("msgTableBody");
-    if (!body) return;
-    body.innerHTML = recentFrames
-      .slice(0, 5)
-      .map(
-        (f) => `<tr>
-          <td class="tabular">${timeStr(f.timestamp)}</td>
-          <td class="mono">${f.can_id_hex}</td>
-          <td>${sourcePill(f.source)}</td>
-          <td>${f.dlc}</td>
-          <td class="mono">${f.payload_hex}</td>
-        </tr>`,
-      )
-      .join("");
-  }
-
-  function sourcePill(source) {
-    const cls =
-      source === "JIG"
-        ? "pill-jig"
-        : source === "DUT"
-          ? "pill-dut"
-          : "pill-unknown";
-    return `<span class="pill ${cls}">${source}</span>`;
   }
 
   function timeStr(ts) {
@@ -375,10 +430,14 @@
             : p.status === "FAIL"
               ? "pill-fail"
               : "pill-pending";
+        // Before COMPARE has produced a measurement, the row is PENDING -
+        // show dashes rather than the pre-test static Expected value, so it
+        // doesn't read as live data before anything has actually compared.
+        const isPending = p.status === "PENDING";
         return `<tr>
           <td>${p.name}</td><td>${p.unit}</td>
-          <td style="color:#4ade80;">${fmt(p.expected_value)}</td>
-          <td>±${fmt(p.tolerance)}</td>
+          <td style="color:#4ade80;">${isPending ? "--" : fmt(p.expected_value)}</td>
+          <td>${isPending ? "--" : "±" + fmt(p.tolerance)}</td>
           <td style="color:var(--primary-strong);">${fmt(p.measured_value)}</td>
           <td style="color:#ff9a7a;">${p.deviation_value !== null ? (p.deviation_value >= 0 ? "+" : "") + fmt(p.deviation_value) : "--"}</td>
           <td style="color:#ff9a7a;">${p.deviation_pct !== null ? (p.deviation_pct >= 0 ? "+" : "") + fmt(p.deviation_pct, 2) + "%" : "--"}</td>
@@ -390,10 +449,20 @@
     document.getElementById("totalParamsVal").textContent = parameters.length;
     document.getElementById("passedVal").textContent = pass;
     document.getElementById("failedVal").textContent = fail;
+    updateCalibrationButtons();
 
     const badge = document.getElementById("overallBadge");
     const label = document.getElementById("overallLabel");
-    if (parameters.length === 0 || pending > 0) {
+    if (runLocked) {
+      const overallPass = fail === 0 && parameters.length > 0;
+      badge.style.borderColor = overallPass
+        ? "var(--status-good)"
+        : "var(--status-critical)";
+      badge.innerHTML = icon("lock", 30);
+      badge.style.color = overallPass ? "#4ade80" : "#ff8a8a";
+      label.textContent = `LOCKED — ${overallPass ? "PASS" : "FAIL"}`;
+      label.style.color = overallPass ? "#4ade80" : "#ff8a8a";
+    } else if (parameters.length === 0 || pending > 0) {
       badge.style.borderColor = "var(--border-strong)";
       badge.innerHTML = icon("clock", 30);
       label.textContent = "--";
@@ -417,15 +486,32 @@
     const ports = await Backend.api().list_ports();
     const sel = document.getElementById("dashPortSel");
     if (!sel) return;
-    sel.innerHTML = (ports.length ? ports : ["(none found)"]).map((p) => `<option>${p}</option>`).join("");
+    sel.innerHTML = (ports.length ? ports : ["(none found)"])
+      .map((p) => `<option>${p}</option>`)
+      .join("");
+  }
+
+  // Reflects connection state in the Connect/Disconnect controls so it's
+  // unambiguous at a glance: Connect hides once connected (Disconnect + a
+  // CONNECTED badge take its place), and the port/baud fields lock so you
+  // can't edit them out from under a live connection.
+  function setConnectedUI(connected) {
+    document.getElementById("dashConnectBtn").style.display = connected ? "none" : "";
+    document.getElementById("dashDisconnectBtn").style.display = connected ? "" : "none";
+    document.getElementById("dashConnectedBadge").style.display = connected ? "inline-flex" : "none";
+    document.getElementById("dashPortSel").disabled = connected;
+    document.getElementById("dashBaudInput").disabled = connected;
+    document.getElementById("dashRefreshBtn").disabled = connected;
   }
 
   async function onConnect() {
     const port = document.getElementById("dashPortSel").value;
-    const baud = parseInt(document.getElementById("dashBaudInput").value, 10) || 115200;
+    const baud =
+      parseInt(document.getElementById("dashBaudInput").value, 10) || 115200;
     const res = await Backend.api().connect(port, baud);
     if (res.ok) {
       App.setPcConnectionInfo(res.port, res.baudrate);
+      setConnectedUI(true);
       App.toast("Connected", "success");
     }
   }
@@ -433,22 +519,111 @@
   async function onDisconnect() {
     await Backend.api().disconnect();
     App.setPcConnectionInfo("--", "--");
+    setConnectedUI(false);
     App.toast("Disconnected", "success");
   }
 
   function wireEvents() {
-    document.getElementById("dashRefreshBtn").addEventListener("click", loadPorts);
-    document.getElementById("dashConnectBtn").addEventListener("click", onConnect);
-    document.getElementById("dashDisconnectBtn").addEventListener("click", onDisconnect);
     document
-      .getElementById("viewAllMsgBtn")
-      .addEventListener("click", () => App.showPage("can_messages"));
+      .getElementById("dashRefreshBtn")
+      .addEventListener("click", loadPorts);
+    document
+      .getElementById("dashConnectBtn")
+      .addEventListener("click", onConnect);
+    document
+      .getElementById("dashDisconnectBtn")
+      .addEventListener("click", onDisconnect);
     document
       .getElementById("saveCsvBtn")
       .addEventListener("click", () => saveReport("csv"));
     document
       .getElementById("savePdfBtn")
       .addEventListener("click", () => saveReport("pdf"));
+    document
+      .getElementById("sendSnapshotBtn")
+      .addEventListener("click", onSendSnapshot);
+    document.getElementById("compareBtn").addEventListener("click", onCompare);
+    document.getElementById("lockBtn").addEventListener("click", onLock);
+  }
+
+  // CR-04: enable continuous comparison. Idempotent - pressing again while
+  // already active is a no-op on the backend.
+  async function onCompare() {
+    if (runLocked) return;
+    compareActive = true;
+    const btn = document.getElementById("compareBtn");
+    btn.disabled = true;
+    btn.textContent = "COMPARING...";
+    parameters = await Backend.api().set_compare(true);
+    renderParams();
+  }
+
+  // CR-04/4.5: freeze the comparison and compute the final PASS/FAIL, then
+  // hand off to the report page (CR-05).
+  async function onLock() {
+    if (runLocked) return;
+    const run = await Backend.api().lock_test();
+    if (!run) {
+      App.toast("Start a test before locking", "error");
+      return;
+    }
+    runLocked = true;
+    compareActive = false;
+    parameters = run.parameters;
+    renderParams();
+
+    const btn = document.getElementById("lockBtn");
+    btn.disabled = true;
+    btn.textContent = "LOCKED";
+    document.getElementById("compareBtn").disabled = true;
+
+    window.Pages.report && window.Pages.report.open(run);
+    App.showPage("report");
+  }
+
+  const SNAPSHOT_STAGE_LABEL = {
+    next_serial: "fetching serial number",
+    send_snapshot: "sending report",
+    confirm_serial: "confirming serial number",
+  };
+
+  async function onSendSnapshot() {
+    const run = await Backend.api().get_current_run();
+    const runData = run || {
+      run_id: "draft",
+      start_time: Date.now() / 1000,
+      end_time: null,
+      phase: "",
+      parameters,
+    };
+    runData.parameters = parameters;
+    runData.jig_firmware_version = document.getElementById(
+      "firmwareVersionVal",
+    ).textContent;
+    runData.jig_hardware_version = document.getElementById(
+      "hardwareVersionVal",
+    ).textContent;
+
+    const btn = document.getElementById("sendSnapshotBtn");
+    const statusEl = document.getElementById("snapshotStatus");
+    btn.disabled = true;
+    statusEl.textContent = "Fetching serial number...";
+    statusEl.style.color = "var(--text-muted)";
+
+    const res = await Backend.api().send_snapshot_with_new_serial(runData);
+    btn.disabled = false;
+
+    if (res.ok) {
+      statusEl.textContent = `Serial ${res.serial_number} assigned — report sent`;
+      statusEl.style.color = "#4ade80";
+      App.toast(`Snapshot sent (Serial ${res.serial_number})`, "success");
+    } else {
+      const serialNote = res.serial_number ? ` (Serial ${res.serial_number})` : "";
+      const failedAt = SNAPSHOT_STAGE_LABEL[res.stage] || "sending snapshot";
+      statusEl.textContent = `Failed while ${failedAt}${serialNote}: ${res.error}`;
+      statusEl.style.color = "#ff8a8a";
+      App.toast(res.error || "Failed to send snapshot", "error");
+    }
   }
 
   async function saveReport(fmtType) {
@@ -461,16 +636,31 @@
       parameters,
     };
     runData.parameters = parameters;
+    runData.jig_firmware_version = document.getElementById(
+      "firmwareVersionVal",
+    ).textContent;
+    runData.jig_hardware_version = document.getElementById(
+      "hardwareVersionVal",
+    ).textContent;
     const res = await Backend.api().save_report(runData, fmtType);
     if (res.ok) App.toast(`Saved ${res.path}`, "success");
   }
 
   function onRunStarted(run) {
     started = true;
+    compareActive = false;
+    runLocked = false;
     document.getElementById("testStartVal").textContent = timeStr(
       run.start_time,
     );
     document.getElementById("testStopVal").textContent = "--:--:--";
+
+    const compareBtn = document.getElementById("compareBtn");
+    compareBtn.disabled = false;
+    compareBtn.textContent = "COMPARE";
+    const lockBtn = document.getElementById("lockBtn");
+    lockBtn.disabled = false;
+    lockBtn.innerHTML = `${icon("check_circle", 13)} LOCK`;
   }
 
   function onRunStopped(run) {
@@ -549,24 +739,26 @@
       await loadPorts();
       const info = await Backend.api().get_connection_info();
       App.setPcConnectionInfo(info.port, info.baudrate);
+      setConnectedUI(!!info.connected);
     },
     async onShow() {
-      const frames = await Backend.api().get_recent_frames(200);
-      recentFrames = frames.slice().reverse();
-      renderFrameRows();
-
       unsubscribers = [
-        Backend.on("frame", (f) => {
-          addFrameRow(f);
-          updateFromFrame(f);
-        }),
+        Backend.on("frame", (f) => updateFromFrame(f)),
+        Backend.on("connection", (d) => setConnectedUI(!!d.connected)),
         Backend.on("parameters", (p) => {
-          if (!jigTestStarted) return;
+          // Once locked, the engine itself stops recomputing (on_frame is
+          // gated), but guard here too in case a stale push arrives.
+          if (runLocked) return;
           parameters = p;
           renderParams();
         }),
         Backend.on("run_started", onRunStarted),
         Backend.on("run_stopped", onRunStopped),
+        Backend.on("run_locked", (run) => {
+          runLocked = true;
+          parameters = run.parameters;
+          renderParams();
+        }),
         Backend.on("phase", onPhase),
       ];
 

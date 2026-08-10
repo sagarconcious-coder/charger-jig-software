@@ -26,6 +26,7 @@ const ICONS = {
   chevron_down: '<path d="M6 9l6 6 6-6"/>',
   clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
 };
 
 function icon(name, size = 18, extraClass = "") {

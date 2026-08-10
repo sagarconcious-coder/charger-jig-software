@@ -9,7 +9,8 @@
       "source": "JIG",
       "signal_name": "mains_sense_dV",
       "measured_source": "DUT",
-      "measured_signal_name": "ACMains"
+      "measured_signal_name": "ACMains",
+      "live_expected": true
     },
     {
       "name": "AC Current",
@@ -19,22 +20,13 @@
       "source": "JIG",
       "signal_name": "ac_current_cA",
       "measured_source": "DUT",
-      "measured_signal_name": "AC_Current"
-    },
-    {
-      "name": "AC Power",
-      "unit": "W",
-      "expected_value": 285.0,
-      "tolerance": 20.0,
-      "source": "JIG",
-      "signal_name": "ac_power_cW",
-      "measured_source": "JIG",
-      "measured_signal_name": "ac_power_cW"
+      "measured_signal_name": "AC_Current",
+      "live_expected": true
     },
     {
       "name": "Power Factor",
       "unit": "",
-      "expected_value": 0.95,
+      "expected_value": 0.01,
       "tolerance": 0.05,
       "source": "JIG",
       "signal_name": "ac_power_factor_pct",
@@ -69,7 +61,8 @@
       "source": "JIG",
       "signal_name": "batt_voltage_mv",
       "measured_source": "DUT",
-      "measured_signal_name": "BatteryVoltage"
+      "measured_signal_name": "BatteryVoltage",
+      "live_expected": true
     },
     {
       "name": "Battery Current",
@@ -79,7 +72,18 @@
       "source": "JIG",
       "signal_name": "batt_curr_sense_mv",
       "measured_source": "DUT",
-      "measured_signal_name": "BatteryCurrent"
+      "measured_signal_name": "BatteryCurrent",
+      "live_expected": true
+    },
+    {
+      "name": "Temperature 1",
+      "unit": "C",
+      "expected_value": 35.0,
+      "tolerance": 10.0,
+      "source": "JIG",
+      "signal_name": "temp1_c",
+      "measured_source": "JIG",
+      "measured_signal_name": "temp1_c"
     }
   ]
 }

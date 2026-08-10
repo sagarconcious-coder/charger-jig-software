@@ -53,6 +53,9 @@ class TestParameter:
     measured_signal_name: str
     measured_value: float | None = None
     status: ParamStatus = ParamStatus.PENDING
+    # When True, expected_value tracks the live JIG signal (source/signal_name)
+    # instead of the static value loaded from test_profile.json.
+    live_expected: bool = False
 
     @property
     def deviation_value(self) -> float | None:
@@ -93,6 +96,11 @@ class TestRun:
     end_time: float | None = None
     phase: str = ""
     parameters: list[TestParameter] = field(default_factory=list)
+    jig_firmware_version: str = "--"
+    jig_hardware_version: str = "--"
+    locked: bool = False
+    charger_part_number: str = ""
+    qr_values: dict = field(default_factory=dict)
 
     @property
     def overall_pass(self) -> bool | None:
@@ -110,6 +118,9 @@ class TestRun:
             "phase": self.phase,
             "overall_pass": self.overall_pass,
             "parameters": [p.to_dict() for p in self.parameters],
+            "locked": self.locked,
+            "charger_part_number": self.charger_part_number,
+            "qr_values": self.qr_values,
         }
 
 

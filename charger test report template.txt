@@ -1,0 +1,42 @@
+DC CHARGER TEST REPORT
+
+Report No.: ___________________________
+Date: __________________  Time: __________________
+Location: ________________________________________
+
+1. DUT / CHARGER INFORMATION
+Charger Serial No.: _______________________________
+Charger Make/Model: _______________________________
+Hardware Version: _________________________________
+Software Version: _________________________________
+
+2. JIG INFORMATION
+Jig Hardware Version: _____________________________
+Jig Software Version: _____________________________
+Tested By: _Automated Jig_______________________________________
+
+3. TEST CONDITIONS
+Input Supply: _____________________________________
+Ambient Temperature: ______________________________
+Test Setup / Fixture: ___Charger Test JIG__________________________
+Reference Instruments: __________NA__________________
+
+
+4. TEST PARAMETERS
+
+| No. | Test Parameter | Unit | Expected / Limit | Tolerance | Measured Value | Status | Remarks |
+|-----|----------------|------|------------------|-----------|----------------|--------|---------|
+| 1   | PFC Voltage    | V    | ________         |  ______   | ________       | Pass/Fail | ______ |
+| 2   | 15V Sense      | V    | ________         |  ______   | ________       | Pass/Fail | ______ |
+| 3   | 12V Sense      | V    | ________         |  ______   | ________       | Pass/Fail | ______ |
+| 4   | Charger Voltage| V    | ________         |  ______   | ________       | Pass/Fail | ______ |
+| 5   | Charger Current| A    | ________         |  ______   | ________       | Pass/Fail | ______ |
+| 6   | AC Voltage     | V    | ________         |  ______   | ________       | Pass/Fail | ______ |
+| 7   | AC Current     | A    | ________         |  ______   | ________       | Pass/Fail | ______ |
+| 7   | AC Power       | W    | ________         |  ______   | ________       | Pass/Fail | ______ |
+| 8   | Power Factor   | %    | ________         |  ______   | ________       | Pass/Fail | ______ |
+| 9   | Temperature 1  |  C   | ________         |  ______   | ________       | Pass/Fail | ______ |
+
+
+5. FINAL RESULT
+Overall Status:  PASS / FAIL

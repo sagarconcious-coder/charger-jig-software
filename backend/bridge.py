@@ -8,25 +8,59 @@ from pathlib import Path
 import webview
 
 from .core.can_bus import CanBus
+from .core.config_auth import ConfigAuth
 from .core.dbc_store import DbcLoadError, DbcStore
 from .core.logging_store import list_serial_ports
 from .core.models import LogEntry
+from .core.packet import MLD_CAN_FRAME
 from .core.report_export import export_csv, export_pdf
 from .core.serial_link import SerialLink
+from .core.server_client import (
+    ServerClientError,
+    ServerConfig,
+    ServerSession,
+    confirm_serial,
+    get_next_serial,
+    send_snapshot,
+)
 from .core.test_engine import TestEngine
 
 
 def bundled_root() -> Path:
-    """Resource root: PyInstaller's extraction dir when frozen, else the repo root."""
+    """Read-only resource root: PyInstaller's extraction dir when frozen (recreated
+    on every launch - never write here), else the repo root."""
     if getattr(sys, "frozen", False):
         return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
     return Path(__file__).resolve().parents[1]
 
 
+def writable_root() -> Path:
+    """Root for anything the app needs to persist across restarts: the folder
+    containing the .exe when frozen, else the repo root (same as bundled_root)."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).resolve().parents[1]
+
+
 ROOT = bundled_root()
+WRITABLE_ROOT = writable_root()
 DEFAULT_JIG_DBC = ROOT / "can_jig_busmaster.dbc"
 DEFAULT_DUT_DBC = ROOT / "EV Battery Charger CAN DBC v1.4.dbc"
-PROFILE_PATH = ROOT / "backend" / "config" / "test_profile.json"
+DEFAULT_PROFILE_PATH = ROOT / "backend" / "config" / "test_profile.json"
+PROFILE_PATH = WRITABLE_ROOT / "backend" / "config" / "test_profile.json"
+SERVER_CONFIG_PATH = WRITABLE_ROOT / "backend" / "config" / "server_config.json"
+CONFIG_AUTH_PATH = WRITABLE_ROOT / "backend" / "config" / "app_auth.json"
+
+# Calibration_Comm_OverCAN command bytes (see DBC comment on message 2432505162).
+CALIBRATION_COMMANDS = {"Battery Voltage": ord("A"), "Battery Current": ord("B")}
+
+
+def _ensure_writable_profile() -> None:
+    """Copies the bundled default test profile to the writable location on first run."""
+    if PROFILE_PATH.exists():
+        return
+    PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PROFILE_PATH.write_text(DEFAULT_PROFILE_PATH.read_text())
 
 
 def _js(payload) -> str:
@@ -51,9 +85,14 @@ class Api:
         self.dbc_store = DbcStore()
         self._load_default_dbcs()
 
+        _ensure_writable_profile()
         self.can_bus = CanBus(self.dbc_store)
         self.test_engine = TestEngine(PROFILE_PATH)
         self.can_bus.frame_decoded.connect(self.test_engine.on_frame)
+
+        self.server_config = ServerConfig(SERVER_CONFIG_PATH)
+        self.server_session = ServerSession(self.server_config)
+        self.config_auth = ConfigAuth(CONFIG_AUTH_PATH)
 
         self._link = None
         self._connected_port = "--"
@@ -84,6 +123,7 @@ class Api:
         )
         self.test_engine.run_started.connect(lambda run: self._push("run_started", run.to_dict()))
         self.test_engine.run_stopped.connect(self._on_run_stopped)
+        self.test_engine.run_locked.connect(lambda run: self._push("run_locked", run.to_dict()))
         self.test_engine.phase_changed.connect(lambda phase: self._push("phase", {"phase": phase}))
 
     def _on_run_stopped(self, run) -> None:
@@ -150,7 +190,8 @@ class Api:
         return {"ok": True}
 
     def get_connection_info(self) -> dict:
-        return {"port": self._connected_port, "baudrate": self._connected_baud}
+        connected = self._link is not None and self._link.is_connected
+        return {"port": self._connected_port, "baudrate": self._connected_baud, "connected": connected}
 
     # ---- Test engine ---------------------------------------------
     def start_test(self) -> dict:
@@ -179,6 +220,57 @@ class Api:
         data["elapsed"] = time.time() - run.start_time
         return data
 
+    def set_compare(self, active: bool) -> list[dict]:
+        params = self.test_engine.set_compare(active)
+        return [p.to_dict() for p in params]
+
+    def lock_test(self) -> dict | None:
+        run = self.test_engine.lock()
+        return run.to_dict() if run else None
+
+    # ---- Calibration ---------------------------------------------
+    def send_calibration(self, param_name: str, run_dict: dict | None = None) -> dict:
+        """CR-03/4.3: sends the Calibration_Comm_OverCAN command for Battery
+        Voltage/Current, using the current measured value. Refuses if the
+        parameter isn't currently within tolerance (guards against a
+        hidden/ineligible control being triggered via stale UI state)."""
+        command = CALIBRATION_COMMANDS.get(param_name)
+        if command is None:
+            return {"ok": False, "error": f"'{param_name}' is not calibratable"}
+
+        if not self.test_engine.is_calibration_eligible(param_name):
+            return {"ok": False, "error": f"{param_name} is not within tolerance"}
+
+        param = next((p for p in self.test_engine.parameters if p.name == param_name), None)
+        if param is None or param.measured_value is None:
+            return {"ok": False, "error": f"No measured value for {param_name}"}
+
+        if self._link is None or not self._link.is_connected:
+            return {"ok": False, "error": "Not connected to the JIG"}
+
+        dut_db = self.dbc_store.dut_db
+        if dut_db is None:
+            return {"ok": False, "error": "DUT DBC not loaded"}
+
+        try:
+            message = dut_db.get_message_by_name("Calibration_Comm_OverCAN")
+            payload = message.encode({"Comm_Char": command, "Actual_Value": param.measured_value})
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"Failed to encode calibration frame: {exc}"}
+
+        self._link.write_frame(MLD_CAN_FRAME, message.frame_id, payload)
+        return {"ok": True, "value": param.measured_value}
+
+    # ---- Configuration password (4.8) ---------------------------------------------
+    def verify_config_password(self, password: str) -> dict:
+        return {"ok": self.config_auth.verify(password)}
+
+    def change_config_password(self, old_password: str, new_password: str) -> dict:
+        if not self.config_auth.verify(old_password):
+            return {"ok": False, "error": "Current password is incorrect"}
+        self.config_auth.set_password(new_password)
+        return {"ok": True}
+
     # ---- Recent frames (for pages that just opened and need backlog) ----
     def get_recent_frames(self, limit: int = 200) -> list[dict]:
         frames = list(self.can_bus.recent_frames)[-limit:]
@@ -201,6 +293,11 @@ class Api:
             run_id=run_dict["run_id"], start_time=run_dict["start_time"],
             end_time=run_dict.get("end_time"), phase=run_dict.get("phase", ""),
             parameters=params,
+            jig_firmware_version=run_dict.get("jig_firmware_version", "--"),
+            jig_hardware_version=run_dict.get("jig_hardware_version", "--"),
+            locked=run_dict.get("locked", False),
+            charger_part_number=run_dict.get("charger_part_number", ""),
+            qr_values=run_dict.get("qr_values", {}),
         )
 
         default_name = f"test_report_{run.run_id}.{fmt}"
@@ -217,3 +314,55 @@ class Api:
         else:
             export_csv(run, params, path)
         return {"ok": True, "path": path}
+
+    # ---- Server integration ---------------------------------------------
+    def get_server_config(self) -> dict:
+        return {"base_url": self.server_config.base_url, "email": self.server_config.email}
+
+    def save_server_config(self, base_url: str, email: str = "", password: str = "") -> dict:
+        # keep the existing password if the UI didn't resend one (e.g. left blank on edit)
+        password = password or self.server_config.password
+        self.server_config.save(base_url, email, password)
+        self.server_session = ServerSession(self.server_config)
+        return {"ok": True, "base_url": self.server_config.base_url, "email": self.server_config.email}
+
+    def fetch_next_serial(self) -> dict:
+        try:
+            serial = get_next_serial(self.server_session)
+            return {"ok": True, "serial_number": serial}
+        except ServerClientError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def send_snapshot_with_new_serial(self, run_dict: dict) -> dict:
+        """Full flow for the dashboard's Send Snapshot button:
+        1. fetch a new serial number from the server
+        2. send the report/snapshot tagged with that serial
+        3. if the send succeeded, confirm the serial so the server commits it
+        Returns at each stage so the UI can show progress/errors precisely.
+        """
+        try:
+            serial = get_next_serial(self.server_session)
+        except ServerClientError as exc:
+            return {"ok": False, "stage": "next_serial", "error": str(exc)}
+
+        snapshot = {
+            "run_id": run_dict["run_id"],
+            "start_time": run_dict["start_time"],
+            "end_time": run_dict.get("end_time"),
+            "phase": run_dict.get("phase", ""),
+            "jig_firmware_version": run_dict.get("jig_firmware_version", "--"),
+            "jig_hardware_version": run_dict.get("jig_hardware_version", "--"),
+            "serial_number": serial,
+            "parameters": run_dict["parameters"],
+        }
+        try:
+            send_snapshot(self.server_session, snapshot)
+        except ServerClientError as exc:
+            return {"ok": False, "stage": "send_snapshot", "serial_number": serial, "error": str(exc)}
+
+        try:
+            confirm_serial(self.server_session, serial)
+        except ServerClientError as exc:
+            return {"ok": False, "stage": "confirm_serial", "serial_number": serial, "error": str(exc)}
+
+        return {"ok": True, "serial_number": serial}

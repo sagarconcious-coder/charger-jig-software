@@ -11,6 +11,7 @@ datas = [
     (str(ROOT / "can_jig_busmaster.dbc"), "."),
     (str(ROOT / "EV Battery Charger CAN DBC v1.4.dbc"), "."),
     (str(ROOT / "backend" / "config" / "test_profile.json"), "backend/config"),
+    (str(ROOT / "backend" / "config" / "server_config.json"), "backend/config"),
     (str(ROOT / "frontend"), "frontend"),
 ]
 
