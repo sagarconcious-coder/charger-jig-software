@@ -79,10 +79,10 @@ BO_ 2566873257 PFC_BROADCAST_0: 8 JIG
  SG_ pfc_15v_sense_v : 32|16@1+ (0.01,0) [0|655.35] "V"  JIG
  SG_ pfc_15v_relay_sense_v : 48|16@1+ (0.01,0) [0|655.35] "V"  JIG
 
-BO_ 2566922256 JIG_STATUS: 8 JIG
+BO_ 2566873104 JIG_STATUS: 8 JIG
  SG_ jig_status : 0|8@1+ (1,0) [0|255] ""  JIG
 
-BO_ 2566922272 JIG_DETAILS: 8 JIG
+BO_ 2566873120 JIG_DETAILS: 8 JIG
  SG_ test_jig_start : 0|8@1+ (1,0) [0|1] ""  JIG
  SG_ firmware_version : 8|8@1+ (0.1,0) [0|25.5] ""  JIG
  SG_ hardware_version : 16|8@1+ (0.1,0) [0|25.5] ""  JIG
@@ -100,8 +100,8 @@ CM_ BO_ 2566873254 "Live AC metering values: mains sense and current.";
 CM_ BO_ 2566873255 "Live AC metering values: real and apparent power.";
 CM_ BO_ 2566873256 "Live AC metering values: power factor and charger efficiency.";
 CM_ BO_ 2566873257 "PFC values: PFC voltage, 15V sense, and 15V relay sense.";
-CM_ BO_ 2566922256 "Jig status flag broadcast.";
-CM_ BO_ 2566922272 "Jig details: test start flag, firmware/hardware version, test voltage and current.";
+CM_ BO_ 2566873104 "Jig status flag broadcast.";
+CM_ BO_ 2566873120 "Jig details: test start flag, firmware/hardware version, test voltage and current.";
 BA_DEF_  "BusType" STRING ;
 BA_DEF_ BO_  "GenMsgCycleTime" INT 0 65535;
 BA_DEF_ BO_  "VFrameFormat" ENUM  "StandardCAN","ExtendedCAN";
@@ -127,9 +127,9 @@ BA_ "GenMsgCycleTime" BO_ 2566873256 60;
 BA_ "VFrameFormat" BO_ 2566873256 1;
 BA_ "GenMsgCycleTime" BO_ 2566873257 60;
 BA_ "VFrameFormat" BO_ 2566873257 1;
-BA_ "GenMsgCycleTime" BO_ 2566922256 100;
-BA_ "VFrameFormat" BO_ 2566922256 1;
-BA_ "GenMsgCycleTime" BO_ 2566922272 1000;
-BA_ "VFrameFormat" BO_ 2566922272 1;
-VAL_ 2566922256 jig_status 1 "test start" 0 "test stop" ;
+BA_ "GenMsgCycleTime" BO_ 2566873104 100;
+BA_ "VFrameFormat" BO_ 2566873104 1;
+BA_ "GenMsgCycleTime" BO_ 2566873120 1000;
+BA_ "VFrameFormat" BO_ 2566873120 1;
+VAL_ 2566873104 jig_status 1 "test start" 0 "test stop" ;
 

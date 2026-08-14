@@ -1,5 +1,5 @@
 {
-  "base_url": "",
-  "email": "",
-  "password": ""
+  "base_url": "http://127.0.0.1:8000",
+  "email": "bms@aeidth.com",
+  "password": "Aeidth0110"
 }

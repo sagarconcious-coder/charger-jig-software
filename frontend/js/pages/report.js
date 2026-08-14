@@ -1,9 +1,23 @@
 (function () {
   // CR-05/4.6: identification fields on the report page. Array-driven so
   // more QR fields can be appended later without touching render logic.
-  const QR_FIELDS = [{ key: "qr_code_1", label: "QR Code" }];
+  const QR_FIELDS = [
+    { key: "qr_code_1", label: "QR Code 1" },
+    { key: "qr_code_2", label: "QR Code 2" },
+    { key: "qr_code_3", label: "QR Code 3" },
+  ];
 
   let run = null;
+  let lots = [];
+  let generatedSerial = "";
+  let submittedReport = null; // server's stored report, once submitted
+  let selectedLotId = ""; // preserved across re-renders (e.g. after submit)
+  let qrValues = { qr_code_1: "", qr_code_2: "", qr_code_3: "" }; // preserved across re-renders
+
+  function lotLabel(lot) {
+    const monthYear = `${lot.month_code}${lot.year_code}`;
+    return `Lot ${lot.lot_code_display} — ${monthYear} — ${lot.prefix}`;
+  }
 
   function fmt(v, digits = 3) {
     return v === null || v === undefined ? "--" : Number(v).toFixed(digits);
@@ -40,16 +54,22 @@
         <div class="card card-pad">
           <h3 style="margin:0 0 12px;font-size:13px;">IDENTIFICATION</h3>
           <div class="field">
-            <label>Charger Part Number</label>
-            <input type="text" id="reportPartNumber" placeholder="Enter part number" />
+            <label>Lot</label>
+            <select id="reportLotSel" ${generatedSerial ? "disabled" : ""}><option value="">Loading lots...</option></select>
           </div>
           ${QR_FIELDS.map(
-            (f) => `
-          <div class="field">
-            <label>${f.label}</label>
-            <input type="text" id="reportQr-${f.key}" placeholder="Scan or enter ${f.label}" />
-          </div>`,
+            (f) => `<div class="field">
+              <label>${f.label}</label>
+              <input type="text" id="report_${f.key}" class="report-qr-input" data-key="${f.key}" value="${qrValues[f.key] || ""}" placeholder="Scan or enter ${f.label}" ${generatedSerial ? "readonly" : ""} />
+            </div>`,
           ).join("")}
+          <div class="field">
+            <label>Serial Number</label>
+            <div style="display:flex;gap:8px;">
+              <input type="text" id="reportSerialNumber" placeholder="Not generated yet" readonly />
+              <button class="btn btn-primary btn-sm" id="reportGenSerialBtn" style="white-space:nowrap;display:none;">${icon("check_circle", 13)} Generate Serial Number</button>
+            </div>
+          </div>
         </div>
 
         <div class="card card-pad" style="text-align:center;">
@@ -100,23 +120,104 @@
     document.getElementById("reportBackBtn").addEventListener("click", () => App.showPage("dashboard"));
     document.getElementById("reportCsvBtn").addEventListener("click", () => save("csv"));
     document.getElementById("reportPdfBtn").addEventListener("click", () => save("pdf"));
+    document.getElementById("reportGenSerialBtn").addEventListener("click", onGenerateSerial);
+    document.querySelectorAll(".report-qr-input").forEach((el) => {
+      el.addEventListener("input", updateGenerateButtonVisibility);
+    });
+    document.getElementById("reportLotSel").addEventListener("change", (e) => {
+      selectedLotId = e.target.value;
+      updateGenerateButtonVisibility();
+    });
+
+    renderSerialField();
+    loadLots();
   }
 
-  function collectFieldValues() {
-    const partNumber = document.getElementById("reportPartNumber").value.trim();
-    const qrValues = {};
+  function collectQrValues() {
     QR_FIELDS.forEach((f) => {
-      qrValues[f.label] = document.getElementById(`reportQr-${f.key}`).value.trim();
+      const el = document.getElementById(`report_${f.key}`);
+      qrValues[f.key] = el ? el.value.trim() : "";
     });
-    return { partNumber, qrValues };
+    return qrValues;
+  }
+
+  // Generate Serial Number only becomes visible once a lot is selected and
+  // all 3 QR fields are filled in - it stays hidden until then so a report
+  // can never be submitted with missing traceability data.
+  function updateGenerateButtonVisibility() {
+    const btn = document.getElementById("reportGenSerialBtn");
+    if (!btn || generatedSerial) return;
+    const lotId = document.getElementById("reportLotSel").value;
+    const qrValues = collectQrValues();
+    const allQrFilled = QR_FIELDS.every((f) => qrValues[f.key]);
+    btn.style.display = lotId && allQrFilled ? "" : "none";
+  }
+
+  function renderSerialField() {
+    const input = document.getElementById("reportSerialNumber");
+    if (input) input.value = generatedSerial;
+  }
+
+  async function loadLots() {
+    const sel = document.getElementById("reportLotSel");
+    if (!sel) return;
+    const res = await Backend.api().list_lots();
+    if (!res.ok) {
+      sel.innerHTML = `<option value="">Failed to load lots</option>`;
+      return;
+    }
+    lots = res.lots || [];
+    if (!lots.length) {
+      sel.innerHTML = `<option value="">No lots yet — create one on the Lot page</option>`;
+      return;
+    }
+    sel.innerHTML = `<option value="">Select a lot...</option>` +
+      lots.map((l) => `<option value="${l.id}">${lotLabel(l)}</option>`).join("");
+    if (selectedLotId) sel.value = selectedLotId;
+    updateGenerateButtonVisibility();
+  }
+
+  // Report submission (CR): once all 3 QR codes + a lot are filled in,
+  // clicking this submits the locked run to the server, which atomically
+  // generates the serial number AND stores the report against it. The
+  // server's returned report (serial included) is auto-saved locally by the
+  // backend, so this is the single point where a serial gets minted.
+  async function onGenerateSerial() {
+    const lotId = selectedLotId;
+    if (!lotId) {
+      App.toast("Select a lot first", "error");
+      return;
+    }
+    const values = collectQrValues();
+    if (QR_FIELDS.some((f) => !values[f.key])) {
+      App.toast("Enter all 3 QR values first", "error");
+      return;
+    }
+
+    const btn = document.getElementById("reportGenSerialBtn");
+    btn.disabled = true;
+    try {
+      const res = await Backend.api().submit_charger_report(lotId, values, run);
+      if (res.ok) {
+        submittedReport = res.report;
+        generatedSerial = res.report.serial_number;
+        render();
+        const savedMsg = res.saved_path ? ` — saved locally` : "";
+        App.toast(`Serial number ${generatedSerial} generated${savedMsg}`, "success");
+      } else {
+        App.toast(res.error || "Failed to submit report", "error");
+      }
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   async function save(fmtType) {
-    const { partNumber, qrValues } = collectFieldValues();
     const runData = {
       ...run,
-      charger_part_number: partNumber,
-      qr_values: qrValues,
+      charger_part_number: "",
+      qr_values: collectQrValues(),
+      serial_number: generatedSerial,
     };
     const res = await Backend.api().save_report(runData, fmtType);
     if (res.ok) App.toast(`Saved ${res.path}`, "success");
@@ -132,6 +233,10 @@
     // fields (4.6) - each open() call re-renders from a fresh, blank form.
     open(lockedRun) {
       run = lockedRun;
+      generatedSerial = "";
+      submittedReport = null;
+      selectedLotId = "";
+      qrValues = { qr_code_1: "", qr_code_2: "", qr_code_3: "" };
       render();
     },
   };

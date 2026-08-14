@@ -118,6 +118,7 @@ BO_ 2432505131 ACDCParameters_1: 8 BatteryCharger
  SG_ Temperature3 : 31|8@0- (1,0) [0|0] "Celius" Vector__XXX
  SG_ TemperatureIn : 39|8@0- (1,0) [0|0] "Celius" Vector__XXX
  SG_ AC_Current : 47|16@0- (0.01,0) [0|0] "" Vector__XXX
+ SG_ PowerFactor : 63|8@0+ (1,0) [0|255] "%" Vector__XXX
 
 BO_ 2432505162 Calibration_Comm_OverCAN: 8 Vector__XXX
  SG_ Comm_Char : 7|8@0+ (1,0) [0|255] "" Vector__XXX

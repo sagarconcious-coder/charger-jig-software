@@ -35,6 +35,14 @@
       jig: "temp1_jig",
       dut: "temperature_dut_max",
     },
+    {
+      // DUT PowerFactor is the raw byte 7 of ACDCParameters_1, decoded as-is
+      // (no scale applied yet - see DBC comment on the signal).
+      label: "Power Factor",
+      unit: "%",
+      jig: "power_factor_jig",
+      dut: "power_factor_dut",
+    },
   ];
 
   // JIG-only metrics with no DUT counterpart to compare against.
@@ -45,12 +53,6 @@
       unit: "W",
       accent: "var(--accent-aqua)",
       fmt: 1,
-    },
-    {
-      key: "power_factor_jig",
-      label: "Power Factor",
-      unit: "",
-      accent: "var(--accent-aqua)",
     },
     {
       key: "pfc_voltage",
@@ -105,6 +107,19 @@
 
   function fmt(v, digits = 3) {
     return v === null || v === undefined ? "--" : Number(v).toFixed(digits);
+  }
+
+  // On disconnect, blank every live-measurement tile back to "--" so old
+  // readings from before the link dropped don't linger on screen.
+  function resetLiveTiles() {
+    TILE_SPECS.forEach((t) => setTile(t.key, null));
+    latestJig.acVoltage = null;
+    latestJig.acCurrent = null;
+    latestJig.battVoltage = null;
+    latestJig.battCurrent = null;
+    latestJig.powerFactor = null;
+    latestDutTemp.temperature2 = null;
+    latestDutTemp.temperatureIn = null;
   }
 
   function render() {
@@ -201,13 +216,12 @@
           ${infoRow("Passed", `<span id="passedVal" style="color:#4ade80;">0</span>`)}
           ${infoRow("Failed", `<span id="failedVal" style="color:#ff8a8a;">0</span>`)}
           <button class="btn btn-danger btn-sm" id="lockBtn" style="width:100%;justify-content:center;margin:8px 0;">${icon("check_circle", 13)} LOCK</button>
+          <button class="btn btn-ghost btn-sm" id="viewReportBtn" style="width:100%;justify-content:center;margin-bottom:8px;display:none;">${icon("download", 13)} View Report</button>
           <div class="divider-line"></div>
           <div style="display:flex;gap:8px;">
             <button class="btn btn-ghost btn-sm" id="saveCsvBtn" style="flex:1;justify-content:center;">${icon("download", 13)} CSV</button>
             <button class="btn btn-ghost btn-sm" id="savePdfBtn" style="flex:1;justify-content:center;">${icon("download", 13)} PDF</button>
           </div>
-          <button class="btn btn-primary btn-sm" id="sendSnapshotBtn" style="width:100%;justify-content:center;margin-top:8px;">${icon("plug", 13)} Send Snapshot</button>
-          <div id="snapshotStatus" style="margin-top:6px;font-size:11px;color:var(--text-muted);text-align:center;"></div>
         </div>
       </div>
       </div>
@@ -262,7 +276,7 @@
         : `<div class="compare-row-val dut">--</div>`;
       const calibParam = CALIBRATION_PARAM_BY_LABEL[r.label];
       const calibBtn = calibParam
-        ? `<button class="btn btn-ghost btn-sm calib-btn" style="display:none;" data-param="${calibParam}">${icon("check_circle", 12)} Calibrate</button>`
+        ? `<button class="btn btn-ghost btn-sm calib-btn" style="visibility:hidden;" data-param="${calibParam}">${icon("check_circle", 12)} Calibrate</button>`
         : "";
       return `
       <div class="compare-row">
@@ -285,7 +299,8 @@
     if (!wrap) return;
     wrap.querySelectorAll(".calib-btn").forEach((btn) => {
       const param = parameters.find((p) => p.name === btn.dataset.param);
-      btn.style.display = param && param.status === "PASS" ? "" : "none";
+      btn.style.visibility =
+        param && param.status === "PASS" ? "visible" : "hidden";
     });
   }
 
@@ -294,7 +309,10 @@
     const res = await Backend.api().send_calibration(paramName);
     btn.disabled = false;
     if (res.ok) {
-      App.toast(`${paramName} calibration sent (${fmt(res.value, 3)})`, "success");
+      App.toast(
+        `${paramName} calibration sent (${fmt(res.value, 3)})`,
+        "success",
+      );
     } else {
       App.toast(res.error || `Failed to calibrate ${paramName}`, "error");
     }
@@ -318,8 +336,10 @@
       if ("mains_sense_dV" in s) setTile("ac_voltage_jig", s.mains_sense_dV);
       if ("ac_current_cA" in s) setTile("ac_current_jig", s.ac_current_cA);
       if ("ac_power_cW" in s) setTile("ac_power_jig", s.ac_power_cW, 1);
+      // ac_power_factor_pct is DBC-scaled (0.01) to a 0-100 percentage;
+      // shown here as-is (no further scaling).
       if ("ac_power_factor_pct" in s)
-        setTile("power_factor_jig", s.ac_power_factor_pct / 100.0);
+        setTile("power_factor_jig", s.ac_power_factor_pct);
       if ("pfc_voltage_v" in s) setTile("pfc_voltage", s.pfc_voltage_v);
       if ("pfc_15v_sense_v" in s) setTile("sense_15v", s.pfc_15v_sense_v);
       if ("batt_voltage_mv" in s)
@@ -333,13 +353,18 @@
       if ("batt_voltage_mv" in s) latestJig.battVoltage = s.batt_voltage_mv;
       if ("batt_curr_sense_mv" in s)
         latestJig.battCurrent = s.batt_curr_sense_mv * 10;
-      // ac_power_factor_pct is DBC-scaled (0.01) to a 0-100 percentage; the
-      // efficiency calc below needs it as a 0-1 fraction of real input power.
+      // ac_power_factor_pct is DBC-scaled (0.01) to a 0-100 percentage;
+      // cached here as-is (no further scaling) for the efficiency calc below.
       if ("ac_power_factor_pct" in s)
-        latestJig.powerFactor = s.ac_power_factor_pct / 100.0;
+        latestJig.powerFactor = s.ac_power_factor_pct;
       updateEfficiencyTile();
 
+      // jig_status (JIG_STATUS) is a one-shot message sent only at the
+      // instant a test starts, so it's fragile to rely on alone.
+      // test_jig_start (JIG_DETAILS) is broadcast continuously (~1s), so it's
+      // the reliable trigger; both are wired to the same handler.
       if ("jig_status" in s) updateJigTestStatus(s.jig_status === 1);
+      if ("test_jig_start" in s) updateJigTestStatus(s.test_jig_start === 1);
       if ("firmware_version" in s)
         document.getElementById("firmwareVersionVal").textContent = fmt(
           s.firmware_version,
@@ -358,6 +383,9 @@
       if ("Temperature2" in s) latestDutTemp.temperature2 = s.Temperature2;
       if ("TemperatureIn" in s) latestDutTemp.temperatureIn = s.TemperatureIn;
       if ("Temperature2" in s || "TemperatureIn" in s) updateDutTempTile();
+      // DUT PowerFactor is raw byte 7 of ACDCParameters_1; divide by 100 to
+      // match the JIG's power factor scale for comparison.
+      if ("PowerFactor" in s) setTile("power_factor_dut", s.PowerFactor / 100);
     }
   }
 
@@ -388,7 +416,7 @@
     if (inputPower <= 0) return;
 
     const outputPower = battVoltage * battCurrent;
-    setTile("efficiency_jig", ((outputPower / inputPower) * 100) / 10, 2);
+    setTile("efficiency_jig", outputPower / inputPower, 2);
   }
 
   function updateJigTestStatus(isStarted) {
@@ -496,9 +524,15 @@
   // CONNECTED badge take its place), and the port/baud fields lock so you
   // can't edit them out from under a live connection.
   function setConnectedUI(connected) {
-    document.getElementById("dashConnectBtn").style.display = connected ? "none" : "";
-    document.getElementById("dashDisconnectBtn").style.display = connected ? "" : "none";
-    document.getElementById("dashConnectedBadge").style.display = connected ? "inline-flex" : "none";
+    document.getElementById("dashConnectBtn").style.display = connected
+      ? "none"
+      : "";
+    document.getElementById("dashDisconnectBtn").style.display = connected
+      ? ""
+      : "none";
+    document.getElementById("dashConnectedBadge").style.display = connected
+      ? "inline-flex"
+      : "none";
     document.getElementById("dashPortSel").disabled = connected;
     document.getElementById("dashBaudInput").disabled = connected;
     document.getElementById("dashRefreshBtn").disabled = connected;
@@ -508,11 +542,22 @@
     const port = document.getElementById("dashPortSel").value;
     const baud =
       parseInt(document.getElementById("dashBaudInput").value, 10) || 115200;
-    const res = await Backend.api().connect(port, baud);
-    if (res.ok) {
-      App.setPcConnectionInfo(res.port, res.baudrate);
-      setConnectedUI(true);
-      App.toast("Connected", "success");
+
+    const btn = document.getElementById("dashConnectBtn");
+    btn.disabled = true;
+    btn.textContent = "Connecting...";
+    try {
+      const res = await Backend.api().connect(port, baud);
+      if (res.ok) {
+        App.setPcConnectionInfo(res.port, res.baudrate);
+        setConnectedUI(true);
+        App.toast("Connected", "success");
+      } else {
+        App.toast(res.error || "Failed to connect", "error");
+      }
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = `${icon("plug", 14)} Connect`;
     }
   }
 
@@ -520,6 +565,7 @@
     await Backend.api().disconnect();
     App.setPcConnectionInfo("--", "--");
     setConnectedUI(false);
+    resetLiveTiles();
     App.toast("Disconnected", "success");
   }
 
@@ -539,11 +585,11 @@
     document
       .getElementById("savePdfBtn")
       .addEventListener("click", () => saveReport("pdf"));
-    document
-      .getElementById("sendSnapshotBtn")
-      .addEventListener("click", onSendSnapshot);
     document.getElementById("compareBtn").addEventListener("click", onCompare);
     document.getElementById("lockBtn").addEventListener("click", onLock);
+    document
+      .getElementById("viewReportBtn")
+      .addEventListener("click", () => App.showPage("report"));
   }
 
   // CR-04: enable continuous comparison. Idempotent - pressing again while
@@ -576,54 +622,10 @@
     btn.disabled = true;
     btn.textContent = "LOCKED";
     document.getElementById("compareBtn").disabled = true;
+    document.getElementById("viewReportBtn").style.display = "";
 
     window.Pages.report && window.Pages.report.open(run);
     App.showPage("report");
-  }
-
-  const SNAPSHOT_STAGE_LABEL = {
-    next_serial: "fetching serial number",
-    send_snapshot: "sending report",
-    confirm_serial: "confirming serial number",
-  };
-
-  async function onSendSnapshot() {
-    const run = await Backend.api().get_current_run();
-    const runData = run || {
-      run_id: "draft",
-      start_time: Date.now() / 1000,
-      end_time: null,
-      phase: "",
-      parameters,
-    };
-    runData.parameters = parameters;
-    runData.jig_firmware_version = document.getElementById(
-      "firmwareVersionVal",
-    ).textContent;
-    runData.jig_hardware_version = document.getElementById(
-      "hardwareVersionVal",
-    ).textContent;
-
-    const btn = document.getElementById("sendSnapshotBtn");
-    const statusEl = document.getElementById("snapshotStatus");
-    btn.disabled = true;
-    statusEl.textContent = "Fetching serial number...";
-    statusEl.style.color = "var(--text-muted)";
-
-    const res = await Backend.api().send_snapshot_with_new_serial(runData);
-    btn.disabled = false;
-
-    if (res.ok) {
-      statusEl.textContent = `Serial ${res.serial_number} assigned — report sent`;
-      statusEl.style.color = "#4ade80";
-      App.toast(`Snapshot sent (Serial ${res.serial_number})`, "success");
-    } else {
-      const serialNote = res.serial_number ? ` (Serial ${res.serial_number})` : "";
-      const failedAt = SNAPSHOT_STAGE_LABEL[res.stage] || "sending snapshot";
-      statusEl.textContent = `Failed while ${failedAt}${serialNote}: ${res.error}`;
-      statusEl.style.color = "#ff8a8a";
-      App.toast(res.error || "Failed to send snapshot", "error");
-    }
   }
 
   async function saveReport(fmtType) {
@@ -636,12 +638,10 @@
       parameters,
     };
     runData.parameters = parameters;
-    runData.jig_firmware_version = document.getElementById(
-      "firmwareVersionVal",
-    ).textContent;
-    runData.jig_hardware_version = document.getElementById(
-      "hardwareVersionVal",
-    ).textContent;
+    runData.jig_firmware_version =
+      document.getElementById("firmwareVersionVal").textContent;
+    runData.jig_hardware_version =
+      document.getElementById("hardwareVersionVal").textContent;
     const res = await Backend.api().save_report(runData, fmtType);
     if (res.ok) App.toast(`Saved ${res.path}`, "success");
   }
@@ -661,6 +661,7 @@
     const lockBtn = document.getElementById("lockBtn");
     lockBtn.disabled = false;
     lockBtn.innerHTML = `${icon("check_circle", 13)} LOCK`;
+    document.getElementById("viewReportBtn").style.display = "none";
   }
 
   function onRunStopped(run) {
@@ -744,7 +745,10 @@
     async onShow() {
       unsubscribers = [
         Backend.on("frame", (f) => updateFromFrame(f)),
-        Backend.on("connection", (d) => setConnectedUI(!!d.connected)),
+        Backend.on("connection", (d) => {
+          setConnectedUI(!!d.connected);
+          if (!d.connected) resetLiveTiles();
+        }),
         Backend.on("parameters", (p) => {
           // Once locked, the engine itself stops recomputing (on_frame is
           // gated), but guard here too in case a stale push arrives.

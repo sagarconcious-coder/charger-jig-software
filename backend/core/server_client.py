@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import requests
 
 _DEFAULT_TIMEOUT = 8  # seconds
 
-_NEXT_SERIAL_PATH = "/api/next-serial"
-_TEST_SNAPSHOT_PATH = "/api/test-snapshot"
-_CONFIRM_SERIAL_PATH = "/api/confirm-serial"
+_LOT_OPTIONS_PATH = "/api/charger-lot-options"
+_LOTS_PATH = "/api/charger-lots"
+_SERIAL_PATH = "/api/charger-serial"
+_REPORT_PATH = "/api/charger-report"
 _LOGIN_PATH = "/bms/loginwithpassword"
 
 
@@ -113,7 +115,22 @@ def _unwrap(resp: requests.Response) -> dict:
         body = resp.json()
     except ValueError:
         return {}
-    return body.get("data") or {}
+    return _camel_to_snake(body.get("data") or {})
+
+
+def _camel_to_snake(value):
+    """The Django backend camelCases every response key (see module docstring
+    above); everything on this side - callers, the frontend's lot.js, etc. -
+    is written snake_case, so convert recursively right at the unwrap seam."""
+    if isinstance(value, dict):
+        return {_camel_to_snake_key(k): _camel_to_snake(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_camel_to_snake(v) for v in value]
+    return value
+
+
+def _camel_to_snake_key(key: str) -> str:
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", key).lower()
 
 
 def _error_message(resp: requests.Response) -> str:
@@ -123,19 +140,44 @@ def _error_message(resp: requests.Response) -> str:
         return resp.text
 
 
-def get_next_serial(session: ServerSession) -> str:
-    data = session.request("GET", _NEXT_SERIAL_PATH)
-    serial = data.get("serialNumber") or data.get("serial_number")
-    if not serial:
-        raise ServerClientError("Server response missing 'serialNumber'")
-    return serial
+def get_lot_options(session: ServerSession) -> dict:
+    """Dropdown choice lists + today's default codes for the Lot page."""
+    return session.request("GET", _LOT_OPTIONS_PATH)
 
 
-def send_snapshot(session: ServerSession, snapshot: dict) -> dict:
-    return session.request("POST", _TEST_SNAPSHOT_PATH, json_body=snapshot)
+def create_lot(session: ServerSession, codes: dict) -> dict:
+    """codes: voltage_amp_code, variant_code, connector_code, ms_id_code,
+    month_code, year_code. Returns the new lot record (id, lot_code, prefix, ...)."""
+    return session.request("POST", _LOTS_PATH, json_body=codes)
 
 
-def confirm_serial(session: ServerSession, serial_number: str) -> dict:
-    """Tells the server the snapshot for this serial was saved successfully,
-    so the server can commit/assign the serial instead of leaving it reserved."""
-    return session.request("POST", _CONFIRM_SERIAL_PATH, json_body={"serial_number": serial_number})
+def list_lots(session: ServerSession) -> list:
+    """Existing lots for the Test Report page's lot dropdown."""
+    data = session.request("GET", _LOTS_PATH)
+    return data.get("lots") or []
+
+
+def generate_serial(session: ServerSession, lot_id) -> dict:
+    """Generates the next serial number for the given lot (its DB id, not
+    the raw lot_code - lot_code alone is only unique within a month/year)."""
+    return session.request("POST", _SERIAL_PATH, json_body={"lot_id": lot_id})
+
+
+def submit_charger_report(session: ServerSession, lot_id, qr_values: dict, run: dict) -> dict:
+    """Combined "generate serial + store report" call (CR: Report page's
+    Generate Serial Number button). Atomically mints the next serial number
+    for lot_id and stores the full locked run against it server-side.
+    Returns the stored report, including the generated serial_number, so the
+    caller never has to make a second round-trip to get it."""
+    body = {
+        "lot_id": lot_id,
+        "qr_values": qr_values,
+        "run_id": run.get("run_id", ""),
+        "start_time": run.get("start_time"),
+        "end_time": run.get("end_time"),
+        "overall_result": run.get("overall_pass"),
+        "jig_firmware_version": run.get("jig_firmware_version"),
+        "jig_hardware_version": run.get("jig_hardware_version"),
+        "parameters": run.get("parameters", []),
+    }
+    return session.request("POST", _REPORT_PATH, json_body=body)

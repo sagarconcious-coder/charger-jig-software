@@ -1,11 +1,17 @@
 {
-  "phases": ["Idle", "Precharge", "CC Mode", "CV Mode", "Complete"],
+  "phases": [
+    "Idle",
+    "Precharge",
+    "CC Mode",
+    "CV Mode",
+    "Complete"
+  ],
   "parameters": [
     {
       "name": "AC Voltage",
       "unit": "V",
-      "expected_value": 220.0,
-      "tolerance": 5.0,
+      "expected_value": 0,
+      "tolerance": 5,
       "source": "JIG",
       "signal_name": "mains_sense_dV",
       "measured_source": "DUT",
@@ -15,8 +21,8 @@
     {
       "name": "AC Current",
       "unit": "A",
-      "expected_value": 1.2,
-      "tolerance": 0.1,
+      "expected_value": 0,
+      "tolerance": 0.5,
       "source": "JIG",
       "signal_name": "ac_current_cA",
       "measured_source": "DUT",
@@ -26,18 +32,19 @@
     {
       "name": "Power Factor",
       "unit": "",
-      "expected_value": 0.01,
-      "tolerance": 0.05,
+      "expected_value": 0,
+      "tolerance": 0.1,
       "source": "JIG",
       "signal_name": "ac_power_factor_pct",
-      "measured_source": "JIG",
-      "measured_signal_name": "ac_power_factor_pct"
+      "measured_source": "DUT",
+      "measured_signal_name": "PowerFactor",
+      "live_expected": true
     },
     {
       "name": "PFC Voltage",
       "unit": "V",
-      "expected_value": 393.0,
-      "tolerance": 5.0,
+      "expected_value": 393,
+      "tolerance": 5,
       "source": "JIG",
       "signal_name": "pfc_voltage_v",
       "measured_source": "JIG",
@@ -46,8 +53,8 @@
     {
       "name": "15V Sense",
       "unit": "V",
-      "expected_value": 14.0,
-      "tolerance": 1.0,
+      "expected_value": 14,
+      "tolerance": 1,
       "source": "JIG",
       "signal_name": "pfc_15v_sense_v",
       "measured_source": "JIG",
@@ -56,7 +63,7 @@
     {
       "name": "Battery Voltage",
       "unit": "V",
-      "expected_value": 51.5,
+      "expected_value": 0.4,
       "tolerance": 0.5,
       "source": "JIG",
       "signal_name": "batt_voltage_mv",
@@ -67,7 +74,7 @@
     {
       "name": "Battery Current",
       "unit": "A",
-      "expected_value": 5.0,
+      "expected_value": 0,
       "tolerance": 0.5,
       "source": "JIG",
       "signal_name": "batt_curr_sense_mv",
@@ -76,14 +83,19 @@
       "live_expected": true
     },
     {
-      "name": "Temperature 1",
+      "name": "Temperature",
       "unit": "C",
-      "expected_value": 35.0,
-      "tolerance": 10.0,
+      "expected_value": 26.1,
+      "tolerance": 10,
       "source": "JIG",
       "signal_name": "temp1_c",
-      "measured_source": "JIG",
-      "measured_signal_name": "temp1_c"
+      "measured_source": "DUT",
+      "measured_signal_name": "",
+      "measured_max_of": [
+        "Temperature2",
+        "TemperatureIn"
+      ],
+      "live_expected": true
     }
   ]
 }

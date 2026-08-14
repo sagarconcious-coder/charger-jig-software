@@ -15,6 +15,7 @@ def export_csv(run: TestRun, parameters: list[TestParameter], path: str | Path) 
         if run.end_time:
             writer.writerow(["End", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(run.end_time))])
         writer.writerow(["Charger Part Number", run.charger_part_number or ""])
+        writer.writerow(["Serial Number", run.serial_number or ""])
         for key, value in (run.qr_values or {}).items():
             writer.writerow([key, value])
         writer.writerow([])
@@ -104,7 +105,10 @@ def export_pdf(run: TestRun, parameters: list[TestParameter], path: str | Path) 
     time_str = time.strftime("%H:%M:%S", time.localtime(run.start_time))
 
     qr_values = run.qr_values or {}
-    dut_info_rows = [("Charger Part Number", run.charger_part_number or _BLANK)]
+    dut_info_rows = [
+        ("Charger Part Number", run.charger_part_number or _BLANK),
+        ("Serial Number", run.serial_number or _BLANK),
+    ]
     if qr_values:
         dut_info_rows.extend((label, value or _BLANK) for label, value in qr_values.items())
     else:

@@ -1,6 +1,7 @@
 const PAGES = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
   { id: "can_messages", label: "CAN Messages", icon: "can_messages" },
+  { id: "lot", label: "Lot", icon: "dbc_manager" },
   { id: "configuration", label: "Configuration", icon: "configuration" },
 ];
 

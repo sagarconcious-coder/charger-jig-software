@@ -23,9 +23,7 @@
             <input type="password" id="cfgServerPassword" placeholder="Leave blank to keep existing" />
           </div>
           <button class="btn btn-primary btn-sm" id="cfgSaveServerBtn">${icon("check_circle", 13)} Save</button>
-          <button class="btn btn-ghost btn-sm" id="cfgNextSerialBtn">${icon("refresh", 13)} Get Next Serial</button>
         </div>
-        <div id="cfgSerialResult" style="margin-top:10px;font-size:12.5px;color:var(--text-muted);"></div>
       </div>
 
       <div class="card">
@@ -59,7 +57,6 @@
 
     document.getElementById("cfgSaveParamsBtn").addEventListener("click", onSaveParamsClicked);
     document.getElementById("cfgSaveServerBtn").addEventListener("click", onSaveServerConfig);
-    document.getElementById("cfgNextSerialBtn").addEventListener("click", onFetchNextSerial);
     document.getElementById("cfgPasswordCancelBtn").addEventListener("click", closePasswordModal);
     document.getElementById("cfgPasswordConfirmBtn").addEventListener("click", onConfirmPassword);
     document.getElementById("cfgPasswordInput").addEventListener("keydown", (e) => {
@@ -101,19 +98,6 @@
     const res = await Backend.api().save_server_config(url, email, password);
     document.getElementById("cfgServerPassword").value = "";
     if (res.ok) App.toast("Server settings saved", "success");
-  }
-
-  async function onFetchNextSerial() {
-    const resultEl = document.getElementById("cfgSerialResult");
-    resultEl.textContent = "Fetching...";
-    const res = await Backend.api().fetch_next_serial();
-    if (res.ok) {
-      resultEl.innerHTML = `Next Serial: <span style="color:var(--text-primary);font-weight:700;">${res.serial_number}</span>`;
-      App.toast("Fetched next serial", "success");
-    } else {
-      resultEl.textContent = `Error: ${res.error}`;
-      App.toast(res.error, "error");
-    }
   }
 
   async function onSaveParams() {

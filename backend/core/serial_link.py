@@ -84,6 +84,10 @@ class SerialWorker:
 class SerialLink:
     """Owns the worker thread lifecycle for a real serial connection."""
 
+    # How long to wait for the worker thread to actually open the port
+    # before giving up and reporting failure to the caller.
+    CONNECT_TIMEOUT = 3.0
+
     def __init__(self) -> None:
         self._thread: threading.Thread | None = None
         self._worker: SerialWorker | None = None
@@ -93,17 +97,45 @@ class SerialLink:
         self.connection_lost = Signal()
         self.connected = Signal()
 
-    def connect_to(self, port: str, baudrate: int = 115200) -> None:
+    def connect_to(self, port: str, baudrate: int = 115200) -> tuple[bool, str]:
+        """Starts the worker thread and blocks until the serial port has
+        actually been opened (or failed to open), so callers get a real
+        success/failure result instead of an optimistic 'thread started' ack.
+        Returns (ok, error_message)."""
         self.disconnect()
+
+        outcome: dict[str, str | None] = {"error": None}
+        done = threading.Event()
 
         self._worker = SerialWorker(port, baudrate)
         self._worker.frame_received.connect(self.frame_received.emit)
         self._worker.parse_error.connect(self.parse_error.emit)
-        self._worker.connection_lost.connect(self.connection_lost.emit)
+
+        def _on_connected() -> None:
+            done.set()
+
+        def _on_connection_lost(reason: str) -> None:
+            outcome["error"] = reason
+            done.set()
+
+        self._worker.connected.connect(_on_connected)
         self._worker.connected.connect(self.connected.emit)
+        self._worker.connection_lost.connect(_on_connection_lost)
+        self._worker.connection_lost.connect(self.connection_lost.emit)
 
         self._thread = threading.Thread(target=self._worker.run, daemon=True)
         self._thread.start()
+
+        if not done.wait(timeout=self.CONNECT_TIMEOUT):
+            self.disconnect()
+            return False, f"Timed out opening {port}"
+
+        if outcome["error"] is not None:
+            self._thread = None
+            self._worker = None
+            return False, outcome["error"]
+
+        return True, ""
 
     def write_frame(self, mld: int, can_id: int, payload: bytes) -> None:
         if self._worker is not None:

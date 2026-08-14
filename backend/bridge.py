@@ -19,9 +19,11 @@ from .core.server_client import (
     ServerClientError,
     ServerConfig,
     ServerSession,
-    confirm_serial,
-    get_next_serial,
-    send_snapshot,
+    create_lot as _create_lot,
+    generate_serial as _generate_serial,
+    get_lot_options as _get_lot_options,
+    list_lots as _list_lots,
+    submit_charger_report as _submit_charger_report,
 )
 from .core.test_engine import TestEngine
 
@@ -50,6 +52,7 @@ DEFAULT_PROFILE_PATH = ROOT / "backend" / "config" / "test_profile.json"
 PROFILE_PATH = WRITABLE_ROOT / "backend" / "config" / "test_profile.json"
 SERVER_CONFIG_PATH = WRITABLE_ROOT / "backend" / "config" / "server_config.json"
 CONFIG_AUTH_PATH = WRITABLE_ROOT / "backend" / "config" / "app_auth.json"
+REPORTS_DIR = WRITABLE_ROOT / "reports"
 
 # Calibration_Comm_OverCAN command bytes (see DBC comment on message 2432505162).
 CALIBRATION_COMMANDS = {"Battery Voltage": ord("A"), "Battery Current": ord("B")}
@@ -116,7 +119,7 @@ class Api:
         self.can_bus.frame_decoded.connect(lambda f: self._push("frame", f.to_dict()))
         self.can_bus.log_entry.connect(lambda e: self._push("log", e.to_dict()))
         self.can_bus.connected.connect(lambda: self._push("connection", {"connected": True}))
-        self.can_bus.disconnected.connect(lambda reason: self._push("connection", {"connected": False, "reason": reason}))
+        self.can_bus.disconnected.connect(self._on_can_disconnected)
 
         self.test_engine.parameters_updated.connect(
             lambda params: self._push("parameters", [p.to_dict() for p in params])
@@ -125,6 +128,12 @@ class Api:
         self.test_engine.run_stopped.connect(self._on_run_stopped)
         self.test_engine.run_locked.connect(lambda run: self._push("run_locked", run.to_dict()))
         self.test_engine.phase_changed.connect(lambda phase: self._push("phase", {"phase": phase}))
+
+    def _on_can_disconnected(self, reason: str) -> None:
+        self._push("connection", {"connected": False, "reason": reason})
+        # An unexpected link drop (cable pulled, serial error) needs the same
+        # stale-data cleanup as the explicit Disconnect button.
+        self.test_engine.reset_live_data()
 
     def _on_run_stopped(self, run) -> None:
         run.parameters = [p for p in self.test_engine.parameters]
@@ -176,7 +185,14 @@ class Api:
 
         self._link = SerialLink()
         self.can_bus.attach(self._link)
-        self._link.connect_to(port, baudrate)
+        ok, error = self._link.connect_to(port, baudrate)
+
+        if not ok:
+            self.can_bus.detach()
+            self._link = None
+            self._connected_port = "--"
+            self._connected_baud = "--"
+            return {"ok": False, "error": error or f"Failed to open {port}"}
 
         self._connected_port = port
         self._connected_baud = f"{baudrate // 1000} kbps" if baudrate >= 1000 else str(baudrate)
@@ -187,6 +203,10 @@ class Api:
         self._link = None
         self._connected_port = "--"
         self._connected_baud = "--"
+        # Clear cached CAN signals and live measured/expected values so the
+        # comparison table doesn't keep showing readings from before the link
+        # dropped (they'd otherwise sit stale until new frames arrive).
+        self.test_engine.reset_live_data()
         return {"ok": True}
 
     def get_connection_info(self) -> dict:
@@ -298,6 +318,7 @@ class Api:
             locked=run_dict.get("locked", False),
             charger_part_number=run_dict.get("charger_part_number", ""),
             qr_values=run_dict.get("qr_values", {}),
+            serial_number=run_dict.get("serial_number", ""),
         )
 
         default_name = f"test_report_{run.run_id}.{fmt}"
@@ -326,43 +347,60 @@ class Api:
         self.server_session = ServerSession(self.server_config)
         return {"ok": True, "base_url": self.server_config.base_url, "email": self.server_config.email}
 
-    def fetch_next_serial(self) -> dict:
+    def get_lot_options(self) -> dict:
         try:
-            serial = get_next_serial(self.server_session)
-            return {"ok": True, "serial_number": serial}
+            options = _get_lot_options(self.server_session)
+            return {"ok": True, **options}
         except ServerClientError as exc:
             return {"ok": False, "error": str(exc)}
 
-    def send_snapshot_with_new_serial(self, run_dict: dict) -> dict:
-        """Full flow for the dashboard's Send Snapshot button:
-        1. fetch a new serial number from the server
-        2. send the report/snapshot tagged with that serial
-        3. if the send succeeded, confirm the serial so the server commits it
-        Returns at each stage so the UI can show progress/errors precisely.
-        """
+    def create_lot(self, codes: dict) -> dict:
         try:
-            serial = get_next_serial(self.server_session)
+            lot = _create_lot(self.server_session, codes)
+            return {"ok": True, "lot": lot}
         except ServerClientError as exc:
-            return {"ok": False, "stage": "next_serial", "error": str(exc)}
+            return {"ok": False, "error": str(exc)}
 
-        snapshot = {
-            "run_id": run_dict["run_id"],
-            "start_time": run_dict["start_time"],
-            "end_time": run_dict.get("end_time"),
-            "phase": run_dict.get("phase", ""),
-            "jig_firmware_version": run_dict.get("jig_firmware_version", "--"),
-            "jig_hardware_version": run_dict.get("jig_hardware_version", "--"),
-            "serial_number": serial,
-            "parameters": run_dict["parameters"],
-        }
+    def list_lots(self) -> dict:
         try:
-            send_snapshot(self.server_session, snapshot)
+            lots = _list_lots(self.server_session)
+            return {"ok": True, "lots": lots}
         except ServerClientError as exc:
-            return {"ok": False, "stage": "send_snapshot", "serial_number": serial, "error": str(exc)}
+            return {"ok": False, "error": str(exc)}
 
+    def generate_serial_number(self, lot_id) -> dict:
         try:
-            confirm_serial(self.server_session, serial)
+            result = _generate_serial(self.server_session, lot_id)
+            return {"ok": True, **result}
         except ServerClientError as exc:
-            return {"ok": False, "stage": "confirm_serial", "serial_number": serial, "error": str(exc)}
+            return {"ok": False, "error": str(exc)}
 
-        return {"ok": True, "serial_number": serial}
+    def submit_charger_report(self, lot_id, qr_values: dict, run_dict: dict) -> dict:
+        """Report page's Generate Serial Number button (CR): submits the
+        locked run to the server, which atomically mints the serial number
+        and stores the report, then returns that same report back. The
+        returned report (server's copy of record, serial included) is what
+        gets auto-saved locally - never the pre-submit run_dict - so the
+        local file always matches what the server actually persisted."""
+        try:
+            report = _submit_charger_report(self.server_session, lot_id, qr_values, run_dict)
+        except ServerClientError as exc:
+            return {"ok": False, "error": str(exc)}
+
+        saved_path = self._save_report_locally(report)
+        return {"ok": True, "report": report, "saved_path": saved_path}
+
+    def _save_report_locally(self, report: dict) -> str | None:
+        """Auto-saves the server's returned report as JSON under REPORTS_DIR,
+        keyed by serial number - no dialog, so every generated report is
+        guaranteed to land on disk without an extra click."""
+        try:
+            REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+            serial = report.get("serial_number") or report.get("run_id") or "report"
+            safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in str(serial))
+            path = REPORTS_DIR / f"{safe_name}.json"
+            path.write_text(json.dumps(report, indent=2, default=str))
+            return str(path)
+        except OSError as exc:
+            print(f"Failed to save report locally: {exc}", file=sys.stderr)
+            return None

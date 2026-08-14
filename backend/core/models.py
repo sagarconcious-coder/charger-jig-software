@@ -56,6 +56,10 @@ class TestParameter:
     # When True, expected_value tracks the live JIG signal (source/signal_name)
     # instead of the static value loaded from test_profile.json.
     live_expected: bool = False
+    # When set, measured_value is the max of these signal names (all read from
+    # measured_source) instead of the single measured_signal_name lookup -
+    # e.g. Temperature 1's Measured = max(DUT Temperature2, DUT TemperatureIn).
+    measured_max_of: list[str] = field(default_factory=list)
 
     @property
     def deviation_value(self) -> float | None:
@@ -101,6 +105,7 @@ class TestRun:
     locked: bool = False
     charger_part_number: str = ""
     qr_values: dict = field(default_factory=dict)
+    serial_number: str = ""
 
     @property
     def overall_pass(self) -> bool | None:
@@ -121,6 +126,7 @@ class TestRun:
             "locked": self.locked,
             "charger_part_number": self.charger_part_number,
             "qr_values": self.qr_values,
+            "serial_number": self.serial_number,
         }
 
 

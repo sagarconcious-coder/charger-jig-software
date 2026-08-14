@@ -11,11 +11,15 @@ from .models import CanFrame, ParamStatus, Source, TestParameter, TestRun
 # NOTE: batt_voltage_mv / batt_curr_sense_mv are named as if raw-milli, but
 # their DBC scale factor (0.001) is already applied by DbcStore.decode() via
 # cantools - the value handed to on_frame() is already in V/A. Do not re-scale here.
-# Signals expressed as a 0-100 percentage in the dbc but compared as a 0-1 fraction by the profile.
-_PERCENT_SIGNALS = {"ac_power_factor_pct"}
+# ac_power_factor_pct is used as-is (DBC-scaled 0-100 percentage, no further
+# scaling) so the comparison table's Expected column matches the JIG live tile.
+# DUT PowerFactor is raw byte 7 of ACDCParameters_1; divide by 100 to match
+# the JIG's power factor scale for comparison.
+_PERCENT_SIGNALS: set[str] = {"PowerFactor"}
 # The JIG's battery-current sense reads 10x low against the actual current
 # (hardware/scaling quirk on that channel) - correct it here to match the DUT.
 _TIMES_TEN_SIGNALS = {"batt_curr_sense_mv"}
+_DIVIDE_TEN_SIGNALS: set[str] = set()
 
 
 class TestEngine:
@@ -50,6 +54,7 @@ class TestEngine:
                     measured_source=Source(p["measured_source"]),
                     measured_signal_name=p["measured_signal_name"],
                     live_expected=p.get("live_expected", False),
+                    measured_max_of=p.get("measured_max_of", []),
                 )
             )
 
@@ -64,6 +69,13 @@ class TestEngine:
             return
         self._recompute()
 
+    def _version_str(self, signal_name: str) -> str:
+        """firmware_version/hardware_version from JIG_DETAILS, formatted to
+        match the dashboard's live tile (1 decimal place); "--" if no
+        JIG_DETAILS frame has arrived yet."""
+        val = self._latest_signals.get(Source.JIG, {}).get(signal_name)
+        return f"{val:.1f}" if val is not None else "--"
+
     def _value_for(self, source: Source, signal_name: str) -> float | None:
         val = self._latest_signals.get(source, {}).get(signal_name)
         if val is None:
@@ -72,6 +84,8 @@ class TestEngine:
             val = val / 100.0
         elif signal_name in _TIMES_TEN_SIGNALS:
             val = val * 10.0
+        elif signal_name in _DIVIDE_TEN_SIGNALS:
+            val = val / 10.0
         return val
 
     def _recompute(self) -> None:
@@ -80,9 +94,34 @@ class TestEngine:
                 live = self._value_for(param.source, param.signal_name)
                 if live is not None:
                     param.expected_value = live
-            param.measured_value = self._value_for(param.measured_source, param.measured_signal_name)
+
+            if param.measured_max_of:
+                values = [
+                    v for v in (
+                        self._value_for(param.measured_source, name)
+                        for name in param.measured_max_of
+                    )
+                    if v is not None
+                ]
+                param.measured_value = max(values) if values else None
+            else:
+                param.measured_value = self._value_for(param.measured_source, param.measured_signal_name)
+
             param.evaluate()
         self.parameters_updated.emit(self.parameters)
+
+    def reset_live_data(self) -> list[TestParameter]:
+        """Clears cached CAN signals and live measured/expected values so a
+        disconnect doesn't leave the comparison table showing stale readings
+        from before the link dropped."""
+        self._latest_signals = {Source.JIG: {}, Source.DUT: {}}
+        for param in self.parameters:
+            param.measured_value = None
+            if param.live_expected:
+                param.expected_value = None
+            param.status = ParamStatus.PENDING
+        self.parameters_updated.emit(self.parameters)
+        return self.parameters
 
     def update_parameters(self, updates: list[dict]) -> list[TestParameter]:
         """Applies {name, expected_value, tolerance} updates and persists them to disk."""
@@ -156,6 +195,11 @@ class TestEngine:
         self.current_run.parameters = [
             TestParameter(**{**p.__dict__}) for p in self.parameters
         ]
+        # JIG_DETAILS is broadcast continuously, so the latest cached reading
+        # is the jig's version as of lock time - same value the dashboard's
+        # firmware/hardware tiles show.
+        self.current_run.jig_firmware_version = self._version_str("firmware_version")
+        self.current_run.jig_hardware_version = self._version_str("hardware_version")
         self.parameters_updated.emit(self.parameters)
         self.run_locked.emit(self.current_run)
         return self.current_run
