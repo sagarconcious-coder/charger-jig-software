@@ -299,15 +299,16 @@ class Api:
 
     def apply_update(self) -> dict:
         """Called from the frontend's 'Restart now' button. Hands off to a
-        detached helper script and exits this process - see
+        detached helper script, then closes the window - see
         apply_update_and_relaunch's docstring for why a running exe can't
-        just overwrite itself directly."""
+        just overwrite itself directly, and why closing the window (rather
+        than sys.exit()) is what actually ends the app reliably here."""
         if not self._pending_update:
             return {"ok": False, "error": "No update has been downloaded"}
         new_exe = Path(self._pending_update["path"])
         current_exe = Path(sys.executable)
-        apply_update_and_relaunch(new_exe, current_exe)
-        return {"ok": True}  # unreachable - apply_update_and_relaunch calls sys.exit(0)
+        apply_update_and_relaunch(new_exe, current_exe, self._window)
+        return {"ok": True}
 
     # ---- Python -> JS push ---------------------------------------------
     def _push(self, event: str, data) -> None:

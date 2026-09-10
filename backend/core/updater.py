@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
@@ -78,27 +77,36 @@ def download_update(release: dict, dest_dir: Path) -> Path:
     return dest_path
 
 
-def apply_update_and_relaunch(new_exe_path: Path, current_exe_path: Path) -> None:
-    """Replace current_exe_path with new_exe_path and relaunch, then exit this process.
+def apply_update_and_relaunch(new_exe_path: Path, current_exe_path: Path, window) -> None:
+    """Replace current_exe_path with new_exe_path and relaunch.
 
     A running .exe can't overwrite itself (Windows keeps it locked while it's
-    executing) - so this writes a tiny batch script that waits for THIS
-    process to actually exit, does the file swap, relaunches the app, then
-    deletes itself. The batch script is launched detached (its own console,
-    not tied to ours) so it survives after we call sys.exit().
+    executing) - so this writes a tiny batch script and hands off to it, then
+    closes the pywebview window so the app shuts down through its normal exit
+    path (this fires window.events.closing -> Api.shutdown, same as the user
+    clicking the close button).
+
+    PyInstaller's --onefile build actually runs as TWO processes: a launcher
+    that unpacks itself into a temp dir and holds the .exe file handle, and a
+    child that runs this Python code (os.getpid() only ever sees the child).
+    So instead of tracking a specific PID to wait for, the script just
+    RETRIES the move every second - it succeeds the moment whichever process
+    is holding the file finally lets go, regardless of which one that was.
+    30 retries gives both processes a generous 30s to fully exit.
     """
-    pid = str(_this_process_pid())
     script_path = Path(tempfile.gettempdir()) / "charger_jig_update.bat"
     script_path.write_text(
         "@echo off\r\n"
-        f"echo Waiting for ChargerTestingJIG (pid {pid}) to close...\r\n"
-        ":wait\r\n"
-        f"tasklist /FI \"PID eq {pid}\" 2>NUL | find \"{pid}\" >NUL\r\n"
-        "if not errorlevel 1 (\r\n"
-        "  timeout /t 1 /nobreak >NUL\r\n"
-        "  goto wait\r\n"
-        ")\r\n"
-        f"move /Y \"{new_exe_path}\" \"{current_exe_path}\"\r\n"
+        "setlocal enabledelayedexpansion\r\n"
+        "set attempts=0\r\n"
+        ":retry\r\n"
+        f"move /Y \"{new_exe_path}\" \"{current_exe_path}\" >NUL 2>&1\r\n"
+        "if not errorlevel 1 goto done\r\n"
+        "set /a attempts+=1\r\n"
+        "if !attempts! GEQ 30 goto done\r\n"
+        "timeout /t 1 /nobreak >NUL\r\n"
+        "goto retry\r\n"
+        ":done\r\n"
         f"start \"\" \"{current_exe_path}\"\r\n"
         "del \"%~f0\"\r\n"
     )
@@ -108,9 +116,4 @@ def apply_update_and_relaunch(new_exe_path: Path, current_exe_path: Path) -> Non
         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
         close_fds=True,
     )
-    sys.exit(0)
-
-
-def _this_process_pid() -> int:
-    import os
-    return os.getpid()
+    window.destroy()
