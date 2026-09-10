@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import logging
 from typing import Callable
+
+logger = logging.getLogger(__name__)
 
 
 class Signal:
@@ -24,5 +27,13 @@ class Signal:
             self._listeners.remove(fn)
 
     def emit(self, *args) -> None:
+        # Each listener is isolated: emit() is frequently called from the
+        # serial reader thread (see CanBus/_on_frame), so one misbehaving
+        # listener raising must not prevent the remaining listeners - e.g. a
+        # UI push listener throwing must never stop TestEngine.on_frame (or
+        # vice versa) from running for that same frame.
         for fn in list(self._listeners):
-            fn(*args)
+            try:
+                fn(*args)
+            except Exception:  # noqa: BLE001
+                logger.exception("Signal listener %r raised", fn)

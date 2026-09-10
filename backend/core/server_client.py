@@ -6,7 +6,7 @@ from pathlib import Path
 
 import requests
 
-_DEFAULT_TIMEOUT = 8  # seconds
+_DEFAULT_TIMEOUT = 30  # seconds
 
 _LOT_OPTIONS_PATH = "/api/charger-lot-options"
 _LOTS_PATH = "/api/charger-lots"
@@ -151,10 +151,14 @@ def create_lot(session: ServerSession, codes: dict) -> dict:
     return session.request("POST", _LOTS_PATH, json_body=codes)
 
 
-def list_lots(session: ServerSession) -> list:
-    """Existing lots for the Test Report page's lot dropdown."""
+def list_lots(session: ServerSession) -> dict:
+    """Existing lots for the Test Report page's lot dropdown / the Lot page's
+    table. Each lot dict includes its own next_seq - the next running serial
+    for THAT lot's (voltage_amp, variant, connector, ms_id) combo (see
+    server's ChargerSerialSeqCounter) - not one global value shared across
+    every lot, since different combos count independently."""
     data = session.request("GET", _LOTS_PATH)
-    return data.get("lots") or []
+    return {"lots": data.get("lots") or []}
 
 
 def generate_serial(session: ServerSession, lot_id) -> dict:
@@ -178,6 +182,9 @@ def submit_charger_report(session: ServerSession, lot_id, qr_values: dict, run: 
         "overall_result": run.get("overall_pass"),
         "jig_firmware_version": run.get("jig_firmware_version"),
         "jig_hardware_version": run.get("jig_hardware_version"),
+        "dut_firmware_version": run.get("dut_firmware_version"),
+        "dut_hardware_version": run.get("dut_hardware_version"),
+        "ambient_temperature": run.get("ambient_temperature"),
         "parameters": run.get("parameters", []),
     }
     return session.request("POST", _REPORT_PATH, json_body=body)

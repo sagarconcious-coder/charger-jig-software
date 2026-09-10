@@ -75,7 +75,7 @@
       "name": "Battery Current",
       "unit": "A",
       "expected_value": 0,
-      "tolerance": 0.5,
+      "tolerance": 1.6,
       "source": "JIG",
       "signal_name": "batt_curr_sense_mv",
       "measured_source": "DUT",

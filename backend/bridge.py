@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import queue
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -26,6 +28,14 @@ from .core.server_client import (
     submit_charger_report as _submit_charger_report,
 )
 from .core.test_engine import TestEngine
+from .core.updater import (
+    UpdateError,
+    apply_update_and_relaunch,
+    download_update,
+    get_latest_release,
+    is_newer,
+)
+from .__version__ import __version__
 
 
 def bundled_root() -> Path:
@@ -52,6 +62,7 @@ DEFAULT_PROFILE_PATH = ROOT / "backend" / "config" / "test_profile.json"
 PROFILE_PATH = WRITABLE_ROOT / "backend" / "config" / "test_profile.json"
 SERVER_CONFIG_PATH = WRITABLE_ROOT / "backend" / "config" / "server_config.json"
 CONFIG_AUTH_PATH = WRITABLE_ROOT / "backend" / "config" / "app_auth.json"
+LAST_LOT_PATH = WRITABLE_ROOT / "backend" / "config" / "last_lot.json"
 REPORTS_DIR = WRITABLE_ROOT / "reports"
 
 # Calibration_Comm_OverCAN command bytes (see DBC comment on message 2432505162).
@@ -59,16 +70,154 @@ CALIBRATION_COMMANDS = {"Battery Voltage": ord("A"), "Battery Current": ord("B")
 
 
 def _ensure_writable_profile() -> None:
-    """Copies the bundled default test profile to the writable location on first run."""
-    if PROFILE_PATH.exists():
+    """Copies the bundled default test profile to the writable location on first
+    run, and re-syncs it on later app updates too - but only while the writable
+    copy is untouched since the last sync. A stamp file records the hash of the
+    bundled default that was last copied in; if the writable copy still matches
+    that stamp, it's safe to overwrite with a newer bundled default (e.g. a
+    signal_name/measured_signal_name fix shipped in this build). If the writable
+    copy's hash no longer matches the stamp, the user edited it via the app's
+    own Configuration page (update_parameters() persists there) - leave it alone
+    so an upgrade can never silently discard real calibration/tolerance changes.
+    """
+    import hashlib
+
+    stamp_path = PROFILE_PATH.with_suffix(".json.synced-hash")
+    default_text = DEFAULT_PROFILE_PATH.read_text()
+    default_hash = hashlib.sha256(default_text.encode("utf-8")).hexdigest()
+
+    if not PROFILE_PATH.exists():
+        PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PROFILE_PATH.write_text(default_text)
+        stamp_path.write_text(default_hash)
         return
-    PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PROFILE_PATH.write_text(DEFAULT_PROFILE_PATH.read_text())
+
+    current_text = PROFILE_PATH.read_text()
+    if current_text == default_text:
+        stamp_path.write_text(default_hash)  # already in sync; keep stamp current
+        return
+
+    last_synced_hash = stamp_path.read_text().strip() if stamp_path.exists() else None
+    current_hash = hashlib.sha256(current_text.encode("utf-8")).hexdigest()
+    if last_synced_hash is not None and current_hash == last_synced_hash:
+        # Writable copy is stock (from a previous build), and the bundled
+        # default has since changed - refresh it to pick up the new defaults.
+        PROFILE_PATH.write_text(default_text)
+        stamp_path.write_text(default_hash)
+    # else: writable copy has local edits (or no stamp to compare against,
+    # e.g. upgrading from a build predating this mechanism) - leave it as-is.
+
+
+def _load_last_lot() -> dict:
+    """Reads the last-selected lot (id + display label) persisted on this
+    machine, so the Report page can default to it on every new report
+    instead of forcing a re-selection each time. Survives app restarts and
+    updates since it lives next to the .exe under WRITABLE_ROOT, same as
+    server_config.json / app_auth.json."""
+    if not LAST_LOT_PATH.exists():
+        return {}
+    try:
+        return json.loads(LAST_LOT_PATH.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_last_lot(lot_id, label: str = "") -> None:
+    LAST_LOT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LAST_LOT_PATH.write_text(json.dumps({"lot_id": lot_id, "label": label}, indent=2))
 
 
 def _js(payload) -> str:
     """Safely serialize a Python value for embedding in a JS call."""
     return json.dumps(payload, default=str)
+
+
+class UiPump:
+    """Runs every webview.evaluate_js() push on a single dedicated thread,
+    decoupled from whatever thread produced the event.
+
+    pywebview's evaluate_js() is synchronous: it blocks the calling thread on
+    a semaphore until the JS side round-trips a result back into Python (see
+    webview/window.py's evaluate_js). CAN frames arrive on SerialWorker's
+    background read thread (see serial_link.py) at up to hundreds of Hz -
+    calling evaluate_js directly from there would mean the serial *read loop*
+    itself stalls on the UI/renderer every time the page is busy, backing up
+    the OS serial buffer and making the whole app hang or drop frames under
+    real bus load. Producers just call enqueue(); this pump drains the queue
+    on its own thread at a fixed tick, batching same-tick events into a
+    single evaluate_js call so a burst of frames costs one round-trip instead
+    of one per frame.
+    """
+
+    TICK_SECONDS = 0.05  # 20 Hz UI refresh - fast enough to feel live, slow enough to batch bursts
+    MAX_QUEUE = 20_000  # backpressure valve; see _drain_once's overflow handling
+
+    def __init__(self) -> None:
+        self._window: webview.Window | None = None
+        self._queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=self.MAX_QUEUE)
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._dropped = 0
+
+    def set_window(self, window: webview.Window) -> None:
+        self._window = window
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._run, name="UiPump", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+
+    def enqueue(self, event: str, data) -> None:
+        """Safe to call from any thread, including the serial reader thread.
+        Never blocks on the UI: if the queue is full (pump can't keep up, or
+        the window is gone), the oldest-in-line event is dropped rather than
+        stalling the caller - a dropped log/frame push is far cheaper than a
+        stalled CAN read loop."""
+        try:
+            self._queue.put_nowait((event, data))
+        except queue.Full:
+            self._dropped += 1
+            try:
+                self._queue.get_nowait()  # make room by dropping the oldest
+                self._queue.put_nowait((event, data))
+            except queue.Empty:
+                pass
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            self._drain_once()
+            self._stop.wait(self.TICK_SECONDS)
+        self._drain_once()  # flush anything left on shutdown, best-effort
+
+    def _drain_once(self) -> None:
+        if self._window is None:
+            # Nothing can be delivered yet; avoid growing unbounded before
+            # set_window() is called during startup.
+            return
+
+        batch: list[tuple[str, object]] = []
+        while True:
+            try:
+                batch.append(self._queue.get_nowait())
+            except queue.Empty:
+                break
+
+        if not batch:
+            return
+
+        # One evaluate_js call for the whole batch: cheaper than one round
+        # trip per event, and the JS-side dispatcher just runs them in order.
+        calls = "".join(
+            f"window.__onBackendEvent({_js(event)}, {_js(data)});" for event, data in batch
+        )
+        try:
+            self._window.evaluate_js(calls)
+        except Exception:  # noqa: BLE001 - window may be closing/gone
+            pass
 
 
 class Api:
@@ -84,6 +233,8 @@ class Api:
 
     def __init__(self) -> None:
         self._window: webview.Window | None = None
+        self._ui_pump = UiPump()
+        self._ui_pump.start()
 
         self.dbc_store = DbcStore()
         self._load_default_dbcs()
@@ -101,19 +252,70 @@ class Api:
         self._connected_port = "--"
         self._connected_baud = "--"
 
+        self._pending_update: dict | None = None  # set once a newer .exe has been downloaded
+
         self._wire_events()
+        self._start_update_check()
 
     def set_window(self, window: webview.Window) -> None:
         self._window = window
+        self._ui_pump.set_window(window)
+
+    def shutdown(self) -> None:
+        """Called from window.events.closing so the serial port is actually
+        released and the pump thread stops instead of both being left to the
+        mercy of daemon-thread process teardown (which, for the serial port
+        specifically, isn't guaranteed to run pyserial's close() promptly)."""
+        self.can_bus.detach()
+        self._link = None
+        self._ui_pump.stop()
+
+    # ---- Self-update -----------------------------------------------------
+    def _start_update_check(self) -> None:
+        """Only meaningful for the packaged .exe - running from source has no
+        exe for GitHub's release asset to replace, and no stable pid/relaunch
+        target either. Runs on a daemon thread so a slow/offline GitHub call
+        never delays window startup."""
+        if not getattr(sys, "frozen", False):
+            return
+        threading.Thread(target=self._check_and_download_update, daemon=True).start()
+
+    def _check_and_download_update(self) -> None:
+        release = get_latest_release()
+        if not release:
+            return  # offline, rate-limited, or GitHub unreachable - silently skip
+        latest_tag = release.get("tag_name", "")
+        if not latest_tag or not is_newer(latest_tag, __version__):
+            return
+
+        try:
+            new_exe = download_update(release, dest_dir=WRITABLE_ROOT)
+        except UpdateError as exc:
+            print(f"Update download failed: {exc}", file=sys.stderr)
+            return
+
+        self._pending_update = {"path": str(new_exe), "version": latest_tag}
+        self._push("update_ready", {"version": latest_tag, "current": __version__})
+
+    def apply_update(self) -> dict:
+        """Called from the frontend's 'Restart now' button. Hands off to a
+        detached helper script and exits this process - see
+        apply_update_and_relaunch's docstring for why a running exe can't
+        just overwrite itself directly."""
+        if not self._pending_update:
+            return {"ok": False, "error": "No update has been downloaded"}
+        new_exe = Path(self._pending_update["path"])
+        current_exe = Path(sys.executable)
+        apply_update_and_relaunch(new_exe, current_exe)
+        return {"ok": True}  # unreachable - apply_update_and_relaunch calls sys.exit(0)
 
     # ---- Python -> JS push ---------------------------------------------
     def _push(self, event: str, data) -> None:
-        if self._window is None:
-            return
-        try:
-            self._window.evaluate_js(f"window.__onBackendEvent({_js(event)}, {_js(data)})")
-        except Exception:  # noqa: BLE001 - window may be closing
-            pass
+        # Never touches evaluate_js directly - just hands off to UiPump's
+        # queue, so this is safe (and non-blocking) to call from the serial
+        # reader thread via CanBus/TestEngine's Signal callbacks. See
+        # UiPump's docstring for why that separation matters.
+        self._ui_pump.enqueue(event, data)
 
     def _wire_events(self) -> None:
         self.can_bus.frame_decoded.connect(lambda f: self._push("frame", f.to_dict()))
@@ -251,9 +453,13 @@ class Api:
     # ---- Calibration ---------------------------------------------
     def send_calibration(self, param_name: str, run_dict: dict | None = None) -> dict:
         """CR-03/4.3: sends the Calibration_Comm_OverCAN command for Battery
-        Voltage/Current, using the current measured value. Refuses if the
-        parameter isn't currently within tolerance (guards against a
-        hidden/ineligible control being triggered via stale UI state)."""
+        Voltage/Current, using the JIG's live (trusted-reference) reading as
+        Actual_Value - that's the whole point of calibration: teach the
+        charger's own sensor to match the JIG's true measurement. Sending the
+        DUT's own measured_value back to itself would be circular and either
+        no-op or reinforce its existing drift. Refuses if the parameter isn't
+        currently within tolerance (guards against a hidden/ineligible
+        control being triggered via stale UI state)."""
         command = CALIBRATION_COMMANDS.get(param_name)
         if command is None:
             return {"ok": False, "error": f"'{param_name}' is not calibratable"}
@@ -262,8 +468,8 @@ class Api:
             return {"ok": False, "error": f"{param_name} is not within tolerance"}
 
         param = next((p for p in self.test_engine.parameters if p.name == param_name), None)
-        if param is None or param.measured_value is None:
-            return {"ok": False, "error": f"No measured value for {param_name}"}
+        if param is None or param.expected_value is None:
+            return {"ok": False, "error": f"No JIG reference value for {param_name}"}
 
         if self._link is None or not self._link.is_connected:
             return {"ok": False, "error": "Not connected to the JIG"}
@@ -274,12 +480,35 @@ class Api:
 
         try:
             message = dut_db.get_message_by_name("Calibration_Comm_OverCAN")
-            payload = message.encode({"Comm_Char": command, "Actual_Value": param.measured_value})
+            payload = bytearray(
+                message.encode({"Comm_Char": command, "Actual_Value": param.expected_value})
+            )
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": f"Failed to encode calibration frame: {exc}"}
 
+        # Firmware quirk: the DBC marks Actual_Value (bytes 1-2) as big-endian,
+        # but the charger's calibration parser actually reads those two bytes
+        # little-endian - confirmed on hardware (48.2V/0x12D4 was being read
+        # back as ~542.9V/0xD412). Swap them post-encode rather than changing
+        # the DBC's byte-order annotation, since every other big-endian signal
+        # in this file decodes correctly as-is (e.g. ACMains, BatteryVoltage).
+        payload[1], payload[2] = payload[2], payload[1]
+        payload = bytes(payload)
+
+        # Logged both to stderr (visible when run from source) and to the
+        # app's own log panel (visible in the built .exe, which has no
+        # console attached) so the exact outgoing packet can always be
+        # inspected without extra tooling.
+        log_line = (
+            f"Calibration sent - {param_name}: Comm_Char={chr(command)!r} (0x{command:02X}) "
+            f"Actual_Value={param.expected_value} "
+            f"frame_id=0x{message.frame_id:X} payload={payload.hex(' ').upper()}"
+        )
+        print(log_line, file=sys.stderr)
+        self.can_bus.log_entry.emit(LogEntry.now("INFO", log_line))
+
         self._link.write_frame(MLD_CAN_FRAME, message.frame_id, payload)
-        return {"ok": True, "value": param.measured_value}
+        return {"ok": True, "value": param.expected_value}
 
     # ---- Configuration password (4.8) ---------------------------------------------
     def verify_config_password(self, password: str) -> dict:
@@ -315,13 +544,23 @@ class Api:
             parameters=params,
             jig_firmware_version=run_dict.get("jig_firmware_version", "--"),
             jig_hardware_version=run_dict.get("jig_hardware_version", "--"),
+            dut_firmware_version=run_dict.get("dut_firmware_version", "--"),
+            dut_hardware_version=run_dict.get("dut_hardware_version", "--"),
             locked=run_dict.get("locked", False),
             charger_part_number=run_dict.get("charger_part_number", ""),
+            model_no=run_dict.get("model_no", ""),
+            ambient_temperature=run_dict.get("ambient_temperature", "--"),
             qr_values=run_dict.get("qr_values", {}),
             serial_number=run_dict.get("serial_number", ""),
+            report_id=run_dict.get("report_id", ""),
         )
 
-        default_name = f"test_report_{run.run_id}.{fmt}"
+        # Date-prefixed so a plain filename listing (Explorer, `ls`, ...)
+        # sorts chronologically without opening each file. Falls back to
+        # run_id if saved before a serial number has been generated.
+        date_str = time.strftime("%Y-%m-%d", time.localtime(run.start_time))
+        ident = run.serial_number or run.run_id
+        default_name = f"charger_test_report_{date_str}_{ident}.{fmt}"
         file_types = ("CSV Files (*.csv)",) if fmt == "csv" else ("PDF Files (*.pdf)",)
         result = self._window.create_file_dialog(
             webview.SAVE_DIALOG, save_filename=default_name, file_types=file_types
@@ -363,10 +602,20 @@ class Api:
 
     def list_lots(self) -> dict:
         try:
-            lots = _list_lots(self.server_session)
-            return {"ok": True, "lots": lots}
+            result = _list_lots(self.server_session)
+            return {"ok": True, **result}
         except ServerClientError as exc:
             return {"ok": False, "error": str(exc)}
+
+    def get_last_lot(self) -> dict:
+        """The lot last selected on the Report page, persisted on this
+        machine - lets the page default to it instead of forcing a
+        re-selection on every new report."""
+        return {"ok": True, **_load_last_lot()}
+
+    def set_last_lot(self, lot_id, label: str = "") -> dict:
+        _save_last_lot(lot_id, label)
+        return {"ok": True}
 
     def generate_serial_number(self, lot_id) -> dict:
         try:

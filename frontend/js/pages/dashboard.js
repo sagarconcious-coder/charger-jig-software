@@ -127,7 +127,7 @@
     root.innerHTML = `
       <div id="dashRoot" style="min-height:calc(100vh - 64px - 64px);display:flex;flex-direction:column;">
       <div class="page-header" style="flex:0 0 auto;margin-bottom:10px;">
-        <div><h1>Dashboard</h1><div class="page-sub">Live overview of JIG &amp; DUT signals and active test run</div></div>
+        <div><h1>Dashboard</h1><div class="page-sub">Live overview of JIG &amp; Charger signals and active test run</div></div>
       </div>
 
       <div class="card card-pad" style="flex:0 0 auto;margin-bottom:10px;padding:10px 14px;">
@@ -154,8 +154,10 @@
           ${infoRow("Test Duration", `<span id="testDurationVal" class="tabular">00:00:00</span>`)}
           ${infoRow("Start Time", `<span id="testStartVal" class="tabular">--:--:--</span>`)}
           ${infoRow("Stop Time", `<span id="testStopVal" class="tabular">--:--:--</span>`)}
-          ${infoRow("Firmware Version", `<span id="firmwareVersionVal" class="tabular">--</span>`)}
-          ${infoRow("Hardware Version", `<span id="hardwareVersionVal" class="tabular">--</span>`)}
+          ${infoRow("Jig Firmware Version", `<span id="firmwareVersionVal" class="tabular">--</span>`)}
+          ${infoRow("Jig Hardware Version", `<span id="hardwareVersionVal" class="tabular">--</span>`)}
+          ${infoRow("Charger Firmware Version", `<span id="dutFirmwareVersionVal" class="tabular">--</span>`)}
+          ${infoRow("Charger Hardware Version", `<span id="dutHardwareVersionVal" class="tabular">--</span>`)}
         </div>
 
         <div class="card card-pad" style="padding:10px 14px;">
@@ -217,11 +219,6 @@
           ${infoRow("Failed", `<span id="failedVal" style="color:#ff8a8a;">0</span>`)}
           <button class="btn btn-danger btn-sm" id="lockBtn" style="width:100%;justify-content:center;margin:8px 0;">${icon("check_circle", 13)} LOCK</button>
           <button class="btn btn-ghost btn-sm" id="viewReportBtn" style="width:100%;justify-content:center;margin-bottom:8px;display:none;">${icon("download", 13)} View Report</button>
-          <div class="divider-line"></div>
-          <div style="display:flex;gap:8px;">
-            <button class="btn btn-ghost btn-sm" id="saveCsvBtn" style="flex:1;justify-content:center;">${icon("download", 13)} CSV</button>
-            <button class="btn btn-ghost btn-sm" id="savePdfBtn" style="flex:1;justify-content:center;">${icon("download", 13)} PDF</button>
-          </div>
         </div>
       </div>
       </div>
@@ -386,6 +383,17 @@
       // DUT PowerFactor is raw byte 7 of ACDCParameters_1; divide by 100 to
       // match the JIG's power factor scale for comparison.
       if ("PowerFactor" in s) setTile("power_factor_dut", s.PowerFactor / 100);
+      // ChargerDetails (DUT) - firmware/hardware version, same 0.1 scale as JIG_DETAILS.
+      if ("FirmwareVersion" in s)
+        document.getElementById("dutFirmwareVersionVal").textContent = fmt(
+          s.FirmwareVersion,
+          1,
+        );
+      if ("HardwareVersion" in s)
+        document.getElementById("dutHardwareVersionVal").textContent = fmt(
+          s.HardwareVersion,
+          1,
+        );
     }
   }
 
@@ -416,7 +424,7 @@
     if (inputPower <= 0) return;
 
     const outputPower = battVoltage * battCurrent;
-    setTile("efficiency_jig", outputPower / inputPower, 2);
+    setTile("efficiency_jig", (outputPower / inputPower) * 100, 2);
   }
 
   function updateJigTestStatus(isStarted) {
@@ -579,12 +587,6 @@
     document
       .getElementById("dashDisconnectBtn")
       .addEventListener("click", onDisconnect);
-    document
-      .getElementById("saveCsvBtn")
-      .addEventListener("click", () => saveReport("csv"));
-    document
-      .getElementById("savePdfBtn")
-      .addEventListener("click", () => saveReport("pdf"));
     document.getElementById("compareBtn").addEventListener("click", onCompare);
     document.getElementById("lockBtn").addEventListener("click", onLock);
     document
@@ -624,26 +626,8 @@
     document.getElementById("compareBtn").disabled = true;
     document.getElementById("viewReportBtn").style.display = "";
 
-    window.Pages.report && window.Pages.report.open(run);
+    if (window.Pages.report) await window.Pages.report.open(run);
     App.showPage("report");
-  }
-
-  async function saveReport(fmtType) {
-    const run = await Backend.api().get_current_run();
-    const runData = run || {
-      run_id: "draft",
-      start_time: Date.now() / 1000,
-      end_time: null,
-      phase: "",
-      parameters,
-    };
-    runData.parameters = parameters;
-    runData.jig_firmware_version =
-      document.getElementById("firmwareVersionVal").textContent;
-    runData.jig_hardware_version =
-      document.getElementById("hardwareVersionVal").textContent;
-    const res = await Backend.api().save_report(runData, fmtType);
-    if (res.ok) App.toast(`Saved ${res.path}`, "success");
   }
 
   function onRunStarted(run) {

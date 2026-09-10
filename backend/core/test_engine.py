@@ -69,11 +69,12 @@ class TestEngine:
             return
         self._recompute()
 
-    def _version_str(self, signal_name: str) -> str:
-        """firmware_version/hardware_version from JIG_DETAILS, formatted to
-        match the dashboard's live tile (1 decimal place); "--" if no
-        JIG_DETAILS frame has arrived yet."""
-        val = self._latest_signals.get(Source.JIG, {}).get(signal_name)
+    def _version_str(self, source: Source, signal_name: str) -> str:
+        """firmware_version/hardware_version from JIG_DETAILS, or
+        FirmwareVersion/HardwareVersion from the DUT's ChargerDetails,
+        formatted to match the dashboard's live tile (1 decimal place);
+        "--" if no such frame has arrived yet."""
+        val = self._latest_signals.get(source, {}).get(signal_name)
         return f"{val:.1f}" if val is not None else "--"
 
     def _value_for(self, source: Source, signal_name: str) -> float | None:
@@ -192,14 +193,27 @@ class TestEngine:
 
         self.compare_active = False
         self.current_run.locked = True
+        # The JIG never sends an explicit "test stopped" signal in practice,
+        # so end_time normally stays None all the way to submission (see
+        # stop_run() - the only other place that sets it). Lock is the real
+        # "operator is done" moment, so stamp end_time here if stop_run()
+        # hasn't already set one - never overwrite a real stop timestamp.
+        if self.current_run.end_time is None:
+            self.current_run.end_time = time.time()
         self.current_run.parameters = [
             TestParameter(**{**p.__dict__}) for p in self.parameters
         ]
-        # JIG_DETAILS is broadcast continuously, so the latest cached reading
-        # is the jig's version as of lock time - same value the dashboard's
-        # firmware/hardware tiles show.
-        self.current_run.jig_firmware_version = self._version_str("firmware_version")
-        self.current_run.jig_hardware_version = self._version_str("hardware_version")
+        # JIG_DETAILS / ChargerDetails are both broadcast continuously, so the
+        # latest cached reading is each side's version as of lock time - same
+        # values the dashboard's firmware/hardware tiles show.
+        self.current_run.jig_firmware_version = self._version_str(Source.JIG, "firmware_version")
+        self.current_run.jig_hardware_version = self._version_str(Source.JIG, "hardware_version")
+        self.current_run.dut_firmware_version = self._version_str(Source.DUT, "FirmwareVersion")
+        self.current_run.dut_hardware_version = self._version_str(Source.DUT, "HardwareVersion")
+        # Ambient Temperature (report section 3) - JIG's temp2_c from the same
+        # ADC_BROADCAST_TEMP1_TEMP2 frame that feeds temp1_c (JIG's compared
+        # "Temperature" parameter); temp2_c itself isn't used elsewhere.
+        self.current_run.ambient_temperature = self._version_str(Source.JIG, "temp2_c")
         self.parameters_updated.emit(self.parameters)
         self.run_locked.emit(self.current_run)
         return self.current_run

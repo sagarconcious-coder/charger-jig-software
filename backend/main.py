@@ -44,6 +44,7 @@ def main() -> None:
         background_color="#0B1220",
     )
     api.set_window(window)
+    window.events.closing += api.shutdown
     if DEV_MODE:
         window.events.loaded += lambda: _start_dev_reloader(window)
     webview.start(debug=DEV_MODE)

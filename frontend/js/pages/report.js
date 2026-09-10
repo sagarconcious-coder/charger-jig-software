@@ -2,9 +2,9 @@
   // CR-05/4.6: identification fields on the report page. Array-driven so
   // more QR fields can be appended later without touching render logic.
   const QR_FIELDS = [
-    { key: "qr_code_1", label: "QR Code 1" },
-    { key: "qr_code_2", label: "QR Code 2" },
-    { key: "qr_code_3", label: "QR Code 3" },
+    { key: "qr_code_1", label: "Control Board QR", prefix: "ADTAA" },
+    { key: "qr_code_2", label: "Energy Meter QR", prefix: "ADTAB" },
+    { key: "qr_code_3", label: "Main Board QR", prefix: "ADTAC" },
   ];
 
   let run = null;
@@ -17,6 +17,21 @@
   function lotLabel(lot) {
     const monthYear = `${lot.month_code}${lot.year_code}`;
     return `Lot ${lot.lot_code_display} — ${monthYear} — ${lot.prefix}`;
+  }
+
+  // Model No. comes from the lot's voltage_amp_code ("5825"/"7325" - first
+  // 2 digits = voltage, last 2 = amps, per VOLTAGE_AMP_CHOICES in the
+  // server's charger_code_tables.py), formatted for display as "CCP58V25A"
+  // ("CCP" prefix on every generated report, regardless of source code).
+  function formatModelNo(code) {
+    if (!code || code.length !== 4) return code || "--";
+    return `CCP${code.slice(0, 2)}V${code.slice(2)}A`;
+  }
+
+  function modelNo() {
+    if (submittedReport) return formatModelNo(submittedReport.voltage_amp_code);
+    const lot = lots.find((l) => String(l.id) === String(selectedLotId));
+    return formatModelNo(lot && lot.voltage_amp_code);
   }
 
   function fmt(v, digits = 3) {
@@ -46,7 +61,7 @@
 
     root.innerHTML = `
       <div class="page-header">
-        <div><h1>Test Report</h1><div class="page-sub">Run ${run.run_id} &middot; ${timeStr(run.start_time)}</div></div>
+        <div><h1>Test Report</h1><div class="page-sub">${timeStr(run.start_time)}</div></div>
         <button class="btn btn-ghost btn-sm" id="reportBackBtn">${icon("dashboard", 13)} Back to Dashboard</button>
       </div>
 
@@ -55,14 +70,22 @@
           <h3 style="margin:0 0 12px;font-size:13px;">IDENTIFICATION</h3>
           <div class="field">
             <label>Lot</label>
-            <select id="reportLotSel" ${generatedSerial ? "disabled" : ""}><option value="">Loading lots...</option></select>
+            <div style="display:flex;gap:8px;">
+              <select id="reportLotSel" ${generatedSerial ? "disabled" : ""}><option value="">Loading lots...</option></select>
+              <button class="btn btn-ghost btn-sm" id="reportFetchLotsBtn" type="button" title="Fetch lots" ${generatedSerial ? "disabled" : ""}>${icon("refresh", 13)}</button>
+            </div>
           </div>
-          ${QR_FIELDS.map(
-            (f) => `<div class="field">
+          ${QR_FIELDS.map((f, i) => {
+            // Sequential unlock: a field is enabled once all fields before it
+            // are filled (or it's the first one). Keeps scans in order —
+            // Control Board -> Energy Meter -> Main Board.
+            const prevFilled = i === 0 || QR_FIELDS.slice(0, i).every((pf) => qrValues[pf.key]);
+            const locked = generatedSerial || !prevFilled;
+            return `<div class="field">
               <label>${f.label}</label>
-              <input type="text" id="report_${f.key}" class="report-qr-input" data-key="${f.key}" value="${qrValues[f.key] || ""}" placeholder="Scan or enter ${f.label}" ${generatedSerial ? "readonly" : ""} />
-            </div>`,
-          ).join("")}
+              <input type="text" id="report_${f.key}" class="report-qr-input" data-key="${f.key}" value="${qrValues[f.key] || ""}" placeholder="${prevFilled ? `Scan or enter ${f.label}` : "Scan previous QR first"}" ${locked ? "readonly" : ""} />
+            </div>`;
+          }).join("")}
           <div class="field">
             <label>Serial Number</label>
             <div style="display:flex;gap:8px;">
@@ -77,8 +100,13 @@
           <div style="font-size:34px;font-weight:800;color:${resultColor};">${resultText}</div>
           <div class="divider-line"></div>
           <div style="font-size:12px;color:var(--text-muted);text-align:left;">
+            <div class="flex-between" style="padding:4px 0;"><span>Report No.</span><span>${(submittedReport && submittedReport.report_id) || "Not generated yet"}</span></div>
+            <div class="flex-between" style="padding:4px 0;"><span>Model No.</span><span id="reportModelNoVal">${modelNo()}</span></div>
+            <div class="flex-between" style="padding:4px 0;"><span>Charger Firmware</span><span>${run.dut_firmware_version || "--"}</span></div>
+            <div class="flex-between" style="padding:4px 0;"><span>Charger Hardware</span><span>${run.dut_hardware_version || "--"}</span></div>
             <div class="flex-between" style="padding:4px 0;"><span>Jig Firmware</span><span>${run.jig_firmware_version || "--"}</span></div>
             <div class="flex-between" style="padding:4px 0;"><span>Jig Hardware</span><span>${run.jig_hardware_version || "--"}</span></div>
+            <div class="flex-between" style="padding:4px 0;"><span>Ambient Temperature</span><span>${run.ambient_temperature && run.ambient_temperature !== "--" ? `${run.ambient_temperature} °C` : "--"}</span></div>
             <div class="flex-between" style="padding:4px 0;"><span>Test Date/Time</span><span>${timeStr(run.start_time)}</span></div>
           </div>
         </div>
@@ -122,21 +150,80 @@
     document.getElementById("reportPdfBtn").addEventListener("click", () => save("pdf"));
     document.getElementById("reportGenSerialBtn").addEventListener("click", onGenerateSerial);
     document.querySelectorAll(".report-qr-input").forEach((el) => {
+      // "input" only keeps the Generate button's visibility live - it never
+      // re-renders, so it's safe during a fast scanner's keystroke burst.
+      // Unlocking the next field happens on blur/Enter (onQrCommit), once
+      // the scan is actually done, so a mid-scan re-render can't steal focus
+      // and swallow characters.
       el.addEventListener("input", updateGenerateButtonVisibility);
+      el.addEventListener("blur", onQrCommit);
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") el.blur();
+      });
     });
     document.getElementById("reportLotSel").addEventListener("change", (e) => {
       selectedLotId = e.target.value;
+      const modelEl = document.getElementById("reportModelNoVal");
+      if (modelEl) modelEl.textContent = modelNo();
       updateGenerateButtonVisibility();
+      // Remember this lot on this machine so the next report defaults to it too.
+      const lot = lots.find((l) => String(l.id) === String(selectedLotId));
+      Backend.api().set_last_lot(selectedLotId, lot ? lotLabel(lot) : "");
     });
+    document.getElementById("reportFetchLotsBtn").addEventListener("click", loadLots);
 
     renderSerialField();
     loadLots();
   }
 
+  // Fires once a QR field is left (blur, or Enter which triggers a blur) -
+  // i.e. once the scan/typing into it is actually done. Re-renders (to
+  // unlock the next field, or re-lock later ones if this value was cleared)
+  // only when this field's filled/empty state actually changed.
+  function onQrCommit(e) {
+    const key = e.target.dataset.key;
+    const field = QR_FIELDS.find((f) => f.key === key);
+    const wasFilled = !!qrValues[key];
+    let value = e.target.value.trim();
+    // Each QR must belong to its own board - reject (and clear) a value that
+    // doesn't carry the right prefix, e.g. a Control Board QR (ADTAA...)
+    // scanned into the Energy Meter slot (which requires ADTAB...), so a
+    // mismatched board can never make it into the report.
+    if (value && field && field.prefix && !value.startsWith(field.prefix)) {
+      App.toast(`${field.label} must start with "${field.prefix}"`, "error");
+      value = "";
+      e.target.value = "";
+    }
+    qrValues[key] = value;
+    const isFilled = !!qrValues[key];
+    if (wasFilled !== isFilled) {
+      const idx = QR_FIELDS.findIndex((f) => f.key === key);
+      render();
+      // Move focus to the next field once it unlocks, so an operator scanning
+      // straight through doesn't have to click into the next box by hand.
+      // Deferred to the next frame: render() just replaced the whole
+      // #page-report subtree via innerHTML (destroying the input that's
+      // still mid-blur), and focusing the freshly-inserted element in the
+      // same tick races that reflow - the webview can drop the focus call
+      // and leave nothing focused, which is why the cursor never lands.
+      const nextField = isFilled && QR_FIELDS[idx + 1];
+      if (nextField) {
+        requestAnimationFrame(() => {
+          const nextEl = document.getElementById(`report_${nextField.key}`);
+          if (nextEl) nextEl.focus();
+        });
+      }
+    } else {
+      updateGenerateButtonVisibility();
+    }
+  }
+
   function collectQrValues() {
     QR_FIELDS.forEach((f) => {
       const el = document.getElementById(`report_${f.key}`);
-      qrValues[f.key] = el ? el.value.trim() : "";
+      let value = el ? el.value.trim() : "";
+      if (value && f.prefix && !value.startsWith(f.prefix)) value = "";
+      qrValues[f.key] = value;
     });
     return qrValues;
   }
@@ -161,9 +248,11 @@
   async function loadLots() {
     const sel = document.getElementById("reportLotSel");
     if (!sel) return;
+    sel.innerHTML = `<option value="">Loading lots...</option>`;
     const res = await Backend.api().list_lots();
     if (!res.ok) {
       sel.innerHTML = `<option value="">Failed to load lots</option>`;
+      App.toast(res.error || "Failed to load lots", "error");
       return;
     }
     lots = res.lots || [];
@@ -216,8 +305,11 @@
     const runData = {
       ...run,
       charger_part_number: "",
+      model_no: modelNo(),
+      ambient_temperature: run.ambient_temperature,
       qr_values: collectQrValues(),
       serial_number: generatedSerial,
+      report_id: (submittedReport && submittedReport.report_id) || "",
     };
     const res = await Backend.api().save_report(runData, fmtType);
     if (res.ok) App.toast(`Saved ${res.path}`, "success");
@@ -231,12 +323,18 @@
     // Called by dashboard.js right before navigating here after LOCK.
     // Report page never silently reuses a prior run's identification
     // fields (4.6) - each open() call re-renders from a fresh, blank form.
-    open(lockedRun) {
+    // The Lot is the one exception: it's remembered on this machine (set_last_lot,
+    // persisted to disk) and pre-selected here, since operators typically run a
+    // long batch of chargers from the same lot and re-picking it every single
+    // report is pure friction with no traceability benefit - the QR fields
+    // (which actually identify the individual unit) still always start blank.
+    async open(lockedRun) {
       run = lockedRun;
       generatedSerial = "";
       submittedReport = null;
-      selectedLotId = "";
       qrValues = { qr_code_1: "", qr_code_2: "", qr_code_3: "" };
+      const last = await Backend.api().get_last_lot();
+      selectedLotId = (last.ok && last.lot_id) ? String(last.lot_id) : "";
       render();
     },
   };

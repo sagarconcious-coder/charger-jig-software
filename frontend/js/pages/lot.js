@@ -57,10 +57,15 @@
       </div>
 
       <div class="card">
-        <div class="card-header"><h3>EXISTING LOTS</h3></div>
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+          <h3>EXISTING LOTS</h3>
+          <button class="btn btn-ghost btn-sm" id="lotRefreshBtn" type="button" title="Refresh existing lots">${icon("refresh", 13)} Refresh</button>
+        </div>
         <table class="data-table">
           <thead><tr>
-            <th>Lot Code</th><th>Month</th><th>Year</th><th>Prefix</th><th>Next Sr. No.</th><th>Created</th>
+            <th>Lot Code</th><th>Month</th><th>Year</th><th>Prefix</th>
+            <th title="Next running serial for this lot's exact Voltage/Variant/Connector/EMS combo - shared with any other lot using that same combo, not unique per lot row">Next Serial No.</th>
+            <th>Created</th>
           </tr></thead>
           <tbody id="lotTableBody"></tbody>
         </table>
@@ -100,13 +105,14 @@
     el.textContent = `CC${va}${variant}${connector}${msId}${month}${year}`;
   }
 
-  async function loadOptions() {
-    const res = await Backend.api().get_lot_options();
-    if (!res.ok) {
-      App.toast(res.error || "Failed to load lot options", "error");
-      return;
-    }
-    options = res;
+  // Dropdown choice lists are static (fixed traceability code tables) and
+  // rarely change, so they're mirrored locally (js/charger_code_tables.js)
+  // instead of fetched from the server on every page load - that network
+  // round trip was the source of intermittent "dropdown can't load" failures
+  // when the server was slow/unreachable. Lot *creation* still goes to the
+  // server (it needs an atomic, server-side sequence counter).
+  function loadOptions() {
+    options = window.ChargerCodeTables.optionsPayload();
     applyOptions();
   }
 
@@ -124,7 +130,7 @@
           <td>${l.month_code}</td>
           <td>${l.year_code}</td>
           <td class="tabular">${l.prefix}</td>
-          <td>${String(l.next_seq).padStart(5, "0")}</td>
+          <td class="tabular">${String(l.next_seq || 1).padStart(5, "0")}</td>
           <td>${l.created_at ? new Date(l.created_at).toLocaleString(undefined, { hour12: false }) : "--"}</td>
         </tr>`,
       )
@@ -132,13 +138,24 @@
   }
 
   async function loadLots() {
-    const res = await Backend.api().list_lots();
-    if (!res.ok) {
-      App.toast(res.error || "Failed to load lots", "error");
-      return;
+    const btn = document.getElementById("lotRefreshBtn");
+    if (btn) btn.disabled = true;
+    try {
+      const res = await Backend.api().list_lots();
+      if (!res.ok) {
+        App.toast(res.error || "Failed to load lots", "error");
+        renderLotsTable();
+        return;
+      }
+      // next_seq is scoped per lot's own (voltage_amp/variant/connector/ms_id)
+      // combo now, not one global value - the server attaches it to each lot
+      // row (see ChargerLotView.get), so it's rendered as a table column
+      // instead of one summary figure above the table.
+      lots = res.lots || [];
+      renderLotsTable();
+    } finally {
+      if (btn) btn.disabled = false;
     }
-    lots = res.lots || [];
-    renderLotsTable();
   }
 
   async function onCreateLot() {
@@ -167,6 +184,7 @@
 
   function wireEvents() {
     document.getElementById("lotCreateBtn").addEventListener("click", onCreateLot);
+    document.getElementById("lotRefreshBtn").addEventListener("click", loadLots);
     ["lotVoltageAmp", "lotVariant", "lotConnector", "lotMsId", "lotMonth", "lotYear"].forEach((id) => {
       document.getElementById(id).addEventListener("change", updatePreview);
     });
@@ -177,7 +195,7 @@
     onInit() {},
     async onShow() {
       render();
-      await loadOptions();
+      loadOptions();
       await loadLots();
     },
     onHide() {},

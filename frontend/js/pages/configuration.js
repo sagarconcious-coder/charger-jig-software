@@ -56,7 +56,7 @@
     `;
 
     document.getElementById("cfgSaveParamsBtn").addEventListener("click", onSaveParamsClicked);
-    document.getElementById("cfgSaveServerBtn").addEventListener("click", onSaveServerConfig);
+    document.getElementById("cfgSaveServerBtn").addEventListener("click", onSaveServerConfigClicked);
     document.getElementById("cfgPasswordCancelBtn").addEventListener("click", closePasswordModal);
     document.getElementById("cfgPasswordConfirmBtn").addEventListener("click", onConfirmPassword);
     document.getElementById("cfgPasswordInput").addEventListener("keydown", (e) => {
@@ -64,9 +64,13 @@
     });
   }
 
-  // 4.8: expected/tolerance changes are password-protected. Save is deferred
-  // until the password is verified server-side.
-  function onSaveParamsClicked() {
+  // 4.8: expected/tolerance changes AND server settings changes are both
+  // password-protected, gated behind the same modal - the action to run
+  // once the password is verified server-side is stashed in pendingAction.
+  let pendingAction = null;
+
+  function openPasswordModal(action) {
+    pendingAction = action;
     const overlay = document.getElementById("cfgPasswordOverlay");
     const input = document.getElementById("cfgPasswordInput");
     const error = document.getElementById("cfgPasswordError");
@@ -76,8 +80,17 @@
     input.focus();
   }
 
+  function onSaveParamsClicked() {
+    openPasswordModal(onSaveParams);
+  }
+
+  function onSaveServerConfigClicked() {
+    openPasswordModal(onSaveServerConfig);
+  }
+
   function closePasswordModal() {
     document.getElementById("cfgPasswordOverlay").style.display = "none";
+    pendingAction = null;
   }
 
   async function onConfirmPassword() {
@@ -87,8 +100,9 @@
       document.getElementById("cfgPasswordError").style.display = "block";
       return;
     }
+    const action = pendingAction;
     closePasswordModal();
-    await onSaveParams();
+    if (action) await action();
   }
 
   async function onSaveServerConfig() {

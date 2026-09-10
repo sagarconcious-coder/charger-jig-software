@@ -102,10 +102,18 @@ class TestRun:
     parameters: list[TestParameter] = field(default_factory=list)
     jig_firmware_version: str = "--"
     jig_hardware_version: str = "--"
+    dut_firmware_version: str = "--"
+    dut_hardware_version: str = "--"
     locked: bool = False
     charger_part_number: str = ""
+    model_no: str = ""  # voltage_amp_code from the selected lot, e.g. "5825"/"7325"
+    ambient_temperature: str = "--"  # JIG temp2_c (ADC_BROADCAST_TEMP1_TEMP2) at lock time
     qr_values: dict = field(default_factory=dict)
     serial_number: str = ""
+    # Server-assigned sequential Report No. ("ADCCTJR000123"), set once the
+    # report is submitted; falls back to run_id (see report_export.py) if a
+    # CSV/PDF is exported before submission, since no server ID exists yet.
+    report_id: str = ""
 
     @property
     def overall_pass(self) -> bool | None:
@@ -123,10 +131,17 @@ class TestRun:
             "phase": self.phase,
             "overall_pass": self.overall_pass,
             "parameters": [p.to_dict() for p in self.parameters],
+            "jig_firmware_version": self.jig_firmware_version,
+            "jig_hardware_version": self.jig_hardware_version,
+            "dut_firmware_version": self.dut_firmware_version,
+            "dut_hardware_version": self.dut_hardware_version,
             "locked": self.locked,
             "charger_part_number": self.charger_part_number,
+            "model_no": self.model_no,
+            "ambient_temperature": self.ambient_temperature,
             "qr_values": self.qr_values,
             "serial_number": self.serial_number,
+            "report_id": self.report_id,
         }
 
 

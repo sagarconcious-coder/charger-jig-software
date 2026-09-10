@@ -6,18 +6,39 @@ from pathlib import Path
 
 from .models import TestParameter, TestRun
 
+# Display labels for the 3 QR traceability fields (CR-05/4.6). Keyed on both
+# the current qr_values key format ("qr_code_1") and the legacy one found in
+# reports saved before that fix ("qr_code1"), so older saved reports still
+# render readable labels on re-export.
+_QR_LABELS = {
+    "qr_code_1": "Control Board QR",
+    "qr_code1": "Control Board QR",
+    "qr_code_2": "Energy Meter QR",
+    "qr_code2": "Energy Meter QR",
+    "qr_code_3": "Main Board QR",
+    "qr_code3": "Main Board QR",
+}
+
 
 def export_csv(run: TestRun, parameters: list[TestParameter], path: str | Path) -> None:
     with open(path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["Run ID", run.run_id])
+        writer.writerow(["Report No.", run.report_id or run.run_id])
         writer.writerow(["Start", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(run.start_time))])
         if run.end_time:
             writer.writerow(["End", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(run.end_time))])
-        writer.writerow(["Charger Part Number", run.charger_part_number or ""])
+        writer.writerow(["Model No.", run.model_no or "--"])
         writer.writerow(["Serial Number", run.serial_number or ""])
+        ac_voltage_param = next((p for p in parameters if p.name == "AC Voltage"), None)
+        input_supply = f"{ac_voltage_param.expected_value:.1f} V" if ac_voltage_param and ac_voltage_param.expected_value is not None else ""
+        writer.writerow(["Input Supply", input_supply])
+        writer.writerow(["Ambient Temperature", run.ambient_temperature or "--"])
         for key, value in (run.qr_values or {}).items():
-            writer.writerow([key, value])
+            writer.writerow([_QR_LABELS.get(key, key), value])
+        writer.writerow(["Charger Firmware Version", run.dut_firmware_version or "--"])
+        writer.writerow(["Charger Hardware Version", run.dut_hardware_version or "--"])
+        writer.writerow(["Jig Firmware Version", run.jig_firmware_version or "--"])
+        writer.writerow(["Jig Hardware Version", run.jig_hardware_version or "--"])
         writer.writerow([])
         writer.writerow(["Parameter", "Unit", "Expected", "Tolerance", "Measured", "Deviation", "Deviation %", "Status"])
         for p in parameters:
@@ -104,15 +125,28 @@ def export_pdf(run: TestRun, parameters: list[TestParameter], path: str | Path) 
     start_str = time.strftime("%Y-%m-%d", time.localtime(run.start_time))
     time_str = time.strftime("%H:%M:%S", time.localtime(run.start_time))
 
+    # "AC Voltage" is the JIG-sourced parameter (live_expected tracks the JIG's
+    # mains_sense_dV signal), so its expected_value is the JIG's AC input supply
+    # at lock time - same number shown as "Expected" in the parameters table.
+    ac_voltage_param = next((p for p in parameters if p.name == "AC Voltage"), None)
+    input_supply = (
+        f"{ac_voltage_param.expected_value:.1f} V" if ac_voltage_param and ac_voltage_param.expected_value is not None
+        else _BLANK
+    )
+
     qr_values = run.qr_values or {}
     dut_info_rows = [
-        ("Charger Part Number", run.charger_part_number or _BLANK),
+        ("Model No.", run.model_no or _BLANK),
         ("Serial Number", run.serial_number or _BLANK),
     ]
     if qr_values:
-        dut_info_rows.extend((label, value or _BLANK) for label, value in qr_values.items())
+        dut_info_rows.extend(
+            (_QR_LABELS.get(key, key), value or _BLANK) for key, value in qr_values.items()
+        )
     else:
         dut_info_rows.append(("QR Code", _BLANK))
+    dut_info_rows.append(("Charger Hardware Version", run.dut_hardware_version or "--"))
+    dut_info_rows.append(("Charger Firmware Version", run.dut_firmware_version or "--"))
 
     # Sections 1 & 2 side by side to save vertical space.
     side_by_side = Table(
@@ -124,7 +158,7 @@ def export_pdf(run: TestRun, parameters: list[TestParameter], path: str | Path) 
                  ("Jig Hardware Version", run.jig_hardware_version or "--"),
                  ("Jig Firmware Version", run.jig_firmware_version or "--"),
                  ("Tested By", "Automated Jig"),
-                 ("Report No.", run.run_id),
+                 ("Report No.", run.report_id or run.run_id),
              ], label_w=44, value_w=39)],
         ]],
         colWidths=[83 * mm, 83 * mm], hAlign="LEFT",
@@ -138,7 +172,7 @@ def export_pdf(run: TestRun, parameters: list[TestParameter], path: str | Path) 
     elements = [
         Table(
             [[Paragraph("DC Charger Test Report", title_style),
-              Paragraph(f"Charger Testing JIG<br/>Run ID: {run.run_id}  |  {start_str} {time_str}", sub_style)]],
+              Paragraph(f"Charger Testing JIG<br/>Report No: {run.report_id or run.run_id}  |  {start_str} {time_str}", sub_style)]],
             colWidths=[100 * mm, 66 * mm],
         ),
         Spacer(1, 2 * mm),
@@ -150,8 +184,8 @@ def export_pdf(run: TestRun, parameters: list[TestParameter], path: str | Path) 
 
         section_bar("3. Test Conditions"),
         info_table([
-            ("Input Supply", _BLANK),
-            ("Ambient Temperature", _BLANK),
+            ("Input Supply", input_supply),
+            ("Ambient Temperature", f"{run.ambient_temperature} °C" if run.ambient_temperature and run.ambient_temperature != "--" else _BLANK),
             ("Test Setup / Fixture", "Charger Test JIG"),
             ("Reference Instruments", "NA"),
         ], label_w=44, value_w=122),

@@ -17,6 +17,12 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -r requirements.txt
+      - name: Stamp version from tag into backend/__version__.py
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "__version__ = \"$VERSION\"" > backend/__version__.py
+          cat backend/__version__.py
       - run: pyinstaller charger_jig.spec
       - uses: softprops/action-gh-release@v2
         with:
