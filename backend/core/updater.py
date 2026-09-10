@@ -93,6 +93,17 @@ def apply_update_and_relaunch(new_exe_path: Path, current_exe_path: Path, window
     RETRIES the move every second - it succeeds the moment whichever process
     is holding the file finally lets go, regardless of which one that was.
     30 retries gives both processes a generous 30s to fully exit.
+
+    PyInstaller 6.22.1+ added a bootloader security check (CVE-2025-59042):
+    a launched onefile exe that still has _MEIPASS2/_PYI_* env vars lying
+    around from a just-exited process treats itself as a "child" process and
+    verifies its parent is a copy of itself - which fails here because the
+    relaunch's real OS parent is cmd.exe, not another ChargerTestingJIG.exe,
+    producing "Security validation failure: failed to obtain executable path
+    for parent process!". Clearing those vars with `set NAME=` (an empty
+    assignment - cmd's way of unsetting a variable) before `start` makes
+    Windows not pass them down to the new process at all, so the bootloader
+    sees a clean top-level launch and skips that check entirely.
     """
     script_path = Path(tempfile.gettempdir()) / "charger_jig_update.bat"
     script_path.write_text(
@@ -107,6 +118,15 @@ def apply_update_and_relaunch(new_exe_path: Path, current_exe_path: Path, window
         "timeout /t 1 /nobreak >NUL\r\n"
         "goto retry\r\n"
         ":done\r\n"
+        "set _MEIPASS2=\r\n"
+        "set _PYI_ONEFILE_TEMP_TIMESTAMP=\r\n"
+        "set _PYI_ARCHIVE_FILE=\r\n"
+        "set _PYI_PARENT_PROCESS_LEVEL=\r\n"
+        # Belt-and-suspenders: also clear any other PyInstaller-internal var
+        # we didn't name above by exact name - `set VAR=` unsets VAR, and
+        # this loop runs that for every currently-set _PYI*/_MEI* name.
+        "for /f \"tokens=1 delims==\" %%v in ('set _PYI 2^>NUL') do set %%v=\r\n"
+        "for /f \"tokens=1 delims==\" %%v in ('set _MEI 2^>NUL') do set %%v=\r\n"
         f"start \"\" \"{current_exe_path}\"\r\n"
         "del \"%~f0\"\r\n"
     )
