@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import sys
 import threading
@@ -64,6 +65,28 @@ SERVER_CONFIG_PATH = WRITABLE_ROOT / "backend" / "config" / "server_config.json"
 CONFIG_AUTH_PATH = WRITABLE_ROOT / "backend" / "config" / "app_auth.json"
 LAST_LOT_PATH = WRITABLE_ROOT / "backend" / "config" / "last_lot.json"
 REPORTS_DIR = WRITABLE_ROOT / "reports"
+LOG_PATH = WRITABLE_ROOT / "logs" / "app.log"
+
+
+def _setup_logging() -> None:
+    """Writes to logs/app.log next to the .exe (or repo root in dev), so a
+    silently-swallowed exception (see events.py's Signal.emit) or a "no live
+    data" report from the field is actually diagnosable - previously nothing
+    called logging.basicConfig() anywhere, so every logger.exception() call
+    in the app went to Python's default no-op handler and was lost."""
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=[
+            logging.FileHandler(LOG_PATH, encoding="utf-8"),
+            logging.StreamHandler(sys.stderr),
+        ],
+    )
+
+
+_setup_logging()
+logger = logging.getLogger(__name__)
 
 # Calibration_Comm_OverCAN command bytes (see DBC comment on message 2432505162).
 CALIBRATION_COMMANDS = {"Battery Voltage": ord("A"), "Battery Current": ord("B")}
@@ -217,7 +240,11 @@ class UiPump:
         try:
             self._window.evaluate_js(calls)
         except Exception:  # noqa: BLE001 - window may be closing/gone
-            pass
+            logging.getLogger(__name__).exception(
+                "evaluate_js failed for a batch of %d event(s); window may be "
+                "closing, or the JS side raised - see traceback above/below",
+                len(batch),
+            )
 
 
 class Api:
@@ -319,7 +346,7 @@ class Api:
         self._ui_pump.enqueue(event, data)
 
     def _wire_events(self) -> None:
-        self.can_bus.frame_decoded.connect(lambda f: self._push("frame", f.to_dict()))
+        self.can_bus.frame_decoded.connect(self._on_frame_decoded)
         self.can_bus.log_entry.connect(lambda e: self._push("log", e.to_dict()))
         self.can_bus.connected.connect(lambda: self._push("connection", {"connected": True}))
         self.can_bus.disconnected.connect(self._on_can_disconnected)
@@ -331,6 +358,19 @@ class Api:
         self.test_engine.run_stopped.connect(self._on_run_stopped)
         self.test_engine.run_locked.connect(lambda run: self._push("run_locked", run.to_dict()))
         self.test_engine.phase_changed.connect(lambda phase: self._push("phase", {"phase": phase}))
+
+    def _on_frame_decoded(self, frame) -> None:
+        # Rate-limited diagnostic trail for "connected but no live data"
+        # reports: logs the very first frame (proves decode + dispatch
+        # reached this point at all) then one summary line every 200 frames
+        # after that, rather than one line per frame at real CAN bus rates.
+        self._frame_log_count = getattr(self, "_frame_log_count", 0) + 1
+        if self._frame_log_count == 1 or self._frame_log_count % 200 == 0:
+            logger.info(
+                "frame_decoded #%d: source=%s message=%s signals=%d",
+                self._frame_log_count, frame.source, frame.message_name, len(frame.signals),
+            )
+        self._push("frame", frame.to_dict())
 
     def _on_can_disconnected(self, reason: str) -> None:
         self._push("connection", {"connected": False, "reason": reason})

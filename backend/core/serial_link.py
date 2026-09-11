@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
 import threading
+import time
 
 import serial
 
 from .events import Signal
 from .packet import MLD_BAUDRATE_ACK, ParsedFrame, StreamFramer, build_frame
+
+logger = logging.getLogger(__name__)
 
 # Sent once on connect to tell the JIG tool which CAN baudrate to run at.
 # Mirrors the legacy Node bridge: canId=974256 (0xEDEF0), mld=2 (baudrate set).
@@ -53,6 +57,15 @@ class SerialWorker:
         self.connected.emit()
         self.write_frame(MLD_BAUDRATE_ACK, BAUDRATE_SET_CAN_ID, _baudrate_set_payload(self._baudrate))
         framer = StreamFramer()
+        logger.info("Serial port %s opened at %d baud; baudrate-set sent", self._port_name, self._baudrate)
+
+        # Diagnostic counters for "connected but no live data" reports: proves
+        # whether raw bytes are arriving at all, and separately whether the
+        # framer is successfully turning them into ParsedFrames, without
+        # logging every single read (which would flood the log at real bus rates).
+        bytes_read_total = 0
+        frames_parsed_total = 0
+        last_log_time = 0.0
 
         while self._running:
             try:
@@ -64,15 +77,30 @@ class SerialWorker:
             if not data:
                 continue
 
+            bytes_read_total += len(data)
+
             try:
                 frames = framer.feed(data)
             except Exception as exc:  # noqa: BLE001
                 self.parse_error.emit(str(exc))
                 continue
 
+            frames_parsed_total += len(frames)
             for frame in frames:
                 self._dispatch(frame)
 
+            now = time.monotonic()
+            if now - last_log_time >= 5.0:
+                logger.info(
+                    "Serial %s: %d bytes read, %d frames parsed so far",
+                    self._port_name, bytes_read_total, frames_parsed_total,
+                )
+                last_log_time = now
+
+        logger.info(
+            "Serial worker for %s stopping; totals: %d bytes read, %d frames parsed",
+            self._port_name, bytes_read_total, frames_parsed_total,
+        )
         with self._lock:
             if self._ser is not None:
                 self._ser.close()
