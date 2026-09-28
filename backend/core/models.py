@@ -45,7 +45,7 @@ class ParamStatus(str, Enum):
 class TestParameter:
     name: str
     unit: str
-    expected_value: float
+    expected_value: float | None  # None until a live_expected JIG signal arrives
     tolerance: float
     source: Source
     signal_name: str
@@ -63,18 +63,21 @@ class TestParameter:
 
     @property
     def deviation_value(self) -> float | None:
-        if self.measured_value is None:
+        if self.measured_value is None or self.expected_value is None:
             return None
         return self.measured_value - self.expected_value
 
     @property
     def deviation_pct(self) -> float | None:
-        if self.measured_value is None or self.expected_value == 0:
+        if self.measured_value is None or not self.expected_value:
             return None
         return (self.measured_value - self.expected_value) / self.expected_value * 100.0
 
     def evaluate(self) -> None:
-        if self.measured_value is None:
+        # A live_expected parameter has no expected value until its JIG frame
+        # arrives (e.g. right after a new test starts) - stay PENDING rather
+        # than raising, which aborted the whole recompute and froze the table.
+        if self.measured_value is None or self.expected_value is None:
             self.status = ParamStatus.PENDING
             return
         dev = abs(self.measured_value - self.expected_value)

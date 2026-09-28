@@ -199,7 +199,7 @@ def export_pdf(run: TestRun, parameters: list[TestParameter], path: str | Path) 
     status_rows: list[tuple[int, str]] = []
     for idx, p in enumerate(parameters, start=1):
         rows.append([
-            str(idx), p.name, p.unit, f"{p.expected_value:.3f}", f"±{p.tolerance:.3f}",
+            str(idx), p.name, p.unit, f"{p.expected_value:.3f}" if p.expected_value is not None else "--", f"±{p.tolerance:.3f}",
             f"{p.measured_value:.3f}" if p.measured_value is not None else "--",
             f"{p.deviation_value:+.3f}" if p.deviation_value is not None else "--",
             p.status.value,
