@@ -448,7 +448,10 @@ class Api:
 
         self._connected_port = port
         self._connected_baud = f"{baudrate // 1000} kbps" if baudrate >= 1000 else str(baudrate)
-        return {"ok": True, "port": self._connected_port, "baudrate": self._connected_baud}
+        result = {"ok": True, "port": self._connected_port, "baudrate": self._connected_baud}
+        if error:
+            result["warning"] = error  # connected, but no JIG data yet
+        return result
 
     def disconnect(self) -> dict:
         self.can_bus.detach()

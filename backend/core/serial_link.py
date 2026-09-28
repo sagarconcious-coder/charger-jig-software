@@ -126,14 +126,12 @@ class SerialLink:
     # before giving up and reporting failure to the caller.
     CONNECT_TIMEOUT = 3.0
 
-    # How much longer, after the port opens, to wait for the first valid
-    # frame from the JIG before treating the connection as bad. Opening
-    # the wrong COM port (e.g. some other device that enumerated where the
-    # JIG's USB-serial adapter usually shows up) succeeds at the OS level
-    # with zero indication anything is wrong - the port "connects" but no
-    # frames ever arrive. Requiring a frame catches that at connect time
-    # instead of leaving the UI stuck showing "Connected" with a dead feed.
-    HANDSHAKE_TIMEOUT = 2.0
+    # How long, after the port opens, to wait for the first valid frame
+    # before warning that nothing has arrived yet. It's only a warning - the
+    # port stays open. The JIG (STM32 USB) can take several seconds to start
+    # streaming after the port opens; closing it after a short timeout (as
+    # v1.0.1-v1.0.8 did) left it silent, and every retry restarted the delay.
+    HANDSHAKE_TIMEOUT = 3.0
 
     def __init__(self) -> None:
         self._thread: threading.Thread | None = None
@@ -146,9 +144,10 @@ class SerialLink:
 
     def connect_to(self, port: str, baudrate: int = 115200) -> tuple[bool, str]:
         """Starts the worker thread and blocks until the serial port has
-        actually been opened AND the JIG has echoed back its baudrate-set
-        ack, so callers get a real success/failure result instead of an
-        optimistic 'thread started' ack. Returns (ok, error_message)."""
+        actually been opened and (up to HANDSHAKE_TIMEOUT) the first JIG
+        frame has arrived, so callers get a real success/failure result instead of an
+        optimistic 'thread started' ack. Returns (ok, message): on failure
+        the error, on success an optional warning (no JIG data yet)."""
         self.disconnect()
 
         outcome: dict[str, str | None] = {"error": None}
@@ -189,10 +188,12 @@ class SerialLink:
             return False, outcome["error"]
 
         if not handshake_done.wait(timeout=self.HANDSHAKE_TIMEOUT):
-            self.disconnect()
-            return False, (
-                f"Opened {port} but got no response from the JIG tool - "
-                "check this is the correct port and the device is powered on"
+            # Keep the port open - data usually starts shortly after. The
+            # second element is a non-fatal warning for the UI to show.
+            logger.warning("Serial %s: no data from JIG yet after %.0fs; keeping port open", port, self.HANDSHAKE_TIMEOUT)
+            return True, (
+                f"Connected to {port}, but no data from the JIG yet - "
+                "if it doesn't appear, check this is the correct port and the JIG is powered on"
             )
 
         if outcome["error"] is not None:

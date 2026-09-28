@@ -577,7 +577,8 @@
       if (res.ok) {
         App.setPcConnectionInfo(res.port, res.baudrate);
         setConnectedUI(true);
-        App.toast("Connected", "success");
+        if (res.warning) App.toast(res.warning, "error");
+        else App.toast("Connected", "success");
       } else {
         App.toast(res.error || "Failed to connect", "error");
       }
