@@ -217,6 +217,7 @@
           ${infoRow("Failed", `<span id="failedVal" style="color:#ff8a8a;">0</span>`)}
           <button class="btn btn-danger btn-sm" id="lockBtn" style="width:100%;justify-content:center;margin:6px 0;">${icon("check_circle", 13)} LOCK</button>
           <button class="btn btn-ghost btn-sm" id="viewReportBtn" style="width:100%;justify-content:center;display:none;">${icon("download", 13)} View Report</button>
+          <button class="btn btn-primary btn-sm" id="newTestBtn" style="width:100%;justify-content:center;margin-top:6px;display:none;">${icon("refresh", 13)} New Test</button>
         </div>
       </div>
       </div>
@@ -376,7 +377,15 @@
       // instant a test starts, so it's fragile to rely on alone.
       // test_jig_start (JIG_DETAILS) is broadcast continuously (~1s), so it's
       // the reliable trigger; both are wired to the same handler.
-      if ("jig_status" in s) updateJigTestStatus(s.jig_status === 1);
+      if ("jig_status" in s) {
+        // A "test start" pulse while the previous unit is already LOCKED
+        // means the next charger's test has begun. test_jig_start can stay
+        // at 1 across back-to-back tests (or dip to 0 for less than its ~1s
+        // broadcast period), so the 0->1 edge alone would never reset the
+        // table for the next unit.
+        if (s.jig_status === 1 && jigTestStarted && runLocked) startNewTest();
+        else updateJigTestStatus(s.jig_status === 1);
+      }
       if ("test_jig_start" in s) updateJigTestStatus(s.test_jig_start === 1);
       if ("firmware_version" in s)
         document.getElementById("firmwareVersionVal").textContent = fmt(
@@ -459,6 +468,13 @@
     } else {
       Backend.api().stop_test();
     }
+  }
+
+  // Starts a fresh run for the next unit: the backend clears measured
+  // values and pushes run_started + parameters, which reset the table,
+  // COMPARE and LOCK (see onRunStarted).
+  function startNewTest() {
+    Backend.api().start_test();
   }
 
   function timeStr(ts) {
@@ -611,6 +627,7 @@
     document
       .getElementById("viewReportBtn")
       .addEventListener("click", () => App.showPage("report"));
+    document.getElementById("newTestBtn").addEventListener("click", startNewTest);
   }
 
   // CR-04: enable continuous comparison. Idempotent - pressing again while
@@ -660,6 +677,7 @@
     btn.textContent = "LOCKED";
     document.getElementById("compareBtn").disabled = true;
     document.getElementById("viewReportBtn").style.display = "";
+    document.getElementById("newTestBtn").style.display = "";
 
     if (window.Pages.report) await window.Pages.report.open(run);
     App.showPage("report");
@@ -683,6 +701,7 @@
     lockBtn.disabled = false;
     lockBtn.innerHTML = `${icon("check_circle", 13)} LOCK`;
     document.getElementById("viewReportBtn").style.display = "none";
+    document.getElementById("newTestBtn").style.display = "none";
   }
 
   function onRunStopped(run) {
