@@ -93,6 +93,7 @@
   let jigTestStarted = false;
   let compareActive = false;
   let runLocked = false;
+  let devMode = false;
 
   const latestJig = {
     acVoltage: null,
@@ -125,29 +126,26 @@
   function render() {
     const root = document.getElementById("page-dashboard");
     root.innerHTML = `
-      <div id="dashRoot" style="min-height:calc(100vh - 64px - 64px);display:flex;flex-direction:column;">
-      <div class="page-header" style="flex:0 0 auto;margin-bottom:10px;">
-        <div><h1>Dashboard</h1><div class="page-sub">Live overview of JIG &amp; Charger signals and active test run</div></div>
-      </div>
-
-      <div class="card card-pad" style="flex:0 0 auto;margin-bottom:10px;padding:10px 14px;">
-        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
-          <div class="field" style="min-width:160px;margin-bottom:0;">
+      <div id="dashRoot" style="display:flex;flex-direction:column;gap:10px;">
+      <div class="card" style="padding:8px 14px;">
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <h1 style="font-size:16px;font-weight:700;margin:0 10px 0 0;">Dashboard</h1>
+          <div class="field field-inline">
             <label>COM Port</label>
-            <select id="dashPortSel"></select>
+            <select id="dashPortSel" style="min-width:140px;"></select>
           </div>
           <button class="btn btn-ghost btn-sm" id="dashRefreshBtn">${icon("refresh", 13)} Refresh</button>
-          <div class="field" style="min-width:120px;margin-bottom:0;">
+          <div class="field field-inline">
             <label>Baudrate</label>
-            <input type="number" id="dashBaudInput" value="115200" min="9600" max="3000000" />
+            <input type="number" id="dashBaudInput" value="115200" min="9600" max="3000000" style="width:100px;" />
           </div>
-          <button class="btn btn-primary" id="dashConnectBtn">${icon("plug", 14)} Connect</button>
-          <button class="btn btn-danger" id="dashDisconnectBtn" style="display:none;">${icon("unplug", 14)} Disconnect</button>
+          <button class="btn btn-primary btn-sm" id="dashConnectBtn">${icon("plug", 14)} Connect</button>
+          <button class="btn btn-danger btn-sm" id="dashDisconnectBtn" style="display:none;">${icon("unplug", 14)} Disconnect</button>
           <span id="dashConnectedBadge" class="badge badge-good" style="display:none;"><span class="dot"></span>CONNECTED</span>
         </div>
       </div>
 
-      <div class="grid-3" style="flex:0 0 auto;grid-template-columns: 220px 1fr 220px; margin-bottom:10px;">
+      <div class="grid-3" style="grid-template-columns: 210px 1fr 210px;gap:10px;">
         <div class="card card-pad" style="padding:10px 14px;">
           <h3 style="margin:0 0 8px;font-size:11.5px;letter-spacing:.4px;color:var(--text-secondary);">TEST CONTROL</h3>
           <div id="testStatusVal" style="text-align:center;padding:7px;border-radius:8px;font-weight:800;font-size:13px;letter-spacing:.4px;margin-bottom:8px;background:var(--status-critical-bg);color:#ff8a8a;">TEST STOPPED</div>
@@ -170,7 +168,7 @@
           </div>
           <div id="compareRows"></div>
 
-          <div class="divider-line" style="margin:12px 0;"></div>
+          <div class="divider-line" style="margin:8px 0;"></div>
           <div style="font-size:10.5px;font-weight:700;letter-spacing:.4px;color:var(--accent-aqua);margin-bottom:6px;">JIG ONLY</div>
           <div class="stat-grid" id="tileGridJigOnly" style="margin-bottom:0;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px;"></div>
         </div>
@@ -178,10 +176,10 @@
         <div class="card card-pad" style="padding:10px 14px;">
           <h3 style="margin:0 0 8px;font-size:11.5px;letter-spacing:.4px;color:var(--text-secondary);">TEST PROGRESS</h3>
           ${infoRow("Current Phase", `<span id="phaseVal" style="color:var(--primary-strong);font-weight:700;">Idle</span>`)}
-          <div style="height:6px;border-radius:99px;background:var(--bg-input);margin:8px 0;overflow:hidden;">
+          <div style="height:6px;border-radius:99px;background:var(--bg-input);margin:6px 0;overflow:hidden;">
             <div id="progressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#3987e5,#5b6ff0);transition:width .3s;"></div>
           </div>
-          <div style="text-align:right;font-size:11px;color:var(--text-muted);margin-bottom:8px;"><span id="progressCountVal">0 / 0</span></div>
+          <div style="text-align:right;font-size:11px;color:var(--text-muted);margin-bottom:4px;"><span id="progressCountVal">0 / 0</span></div>
           ${infoRow("Elapsed Time", `<span id="elapsedVal" class="tabular">00:00:00</span>`)}
           ${infoRow("Remaining Time", `<span id="remainingVal" class="tabular">--:--:--</span>`)}
           <div style="display:flex;gap:8px;margin-top:8px;text-align:center;">
@@ -192,7 +190,7 @@
         </div>
       </div>
 
-      <div class="grid-3" style="flex:0 0 auto;grid-template-columns: 1fr 220px; margin-bottom:10px;">
+      <div class="grid-3" style="grid-template-columns: 1fr 210px;gap:10px;">
         <div class="card" style="display:flex;flex-direction:column;">
           <div class="card-header" style="flex:0 0 auto;">
             <h3>PARAMETER COMPARISON</h3>
@@ -211,14 +209,14 @@
 
         <div class="card card-pad" style="text-align:center;padding:10px 14px;">
           <h3 style="margin:0 0 8px;font-size:11.5px;letter-spacing:.4px;color:var(--text-secondary);">OVERALL RESULT</h3>
-          <div id="overallBadge" style="width:56px;height:56px;border-radius:50%;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;background:var(--bg-elevated);border:3px solid var(--border-strong);">${icon("clock", 24)}</div>
-          <div id="overallLabel" style="font-size:16px;font-weight:800;color:var(--text-muted);margin-bottom:8px;">--</div>
-          <div class="divider-line"></div>
+          <div id="overallBadge" style="width:44px;height:44px;border-radius:50%;margin:0 auto 6px;display:flex;align-items:center;justify-content:center;background:var(--bg-elevated);border:3px solid var(--border-strong);">${icon("clock", 24)}</div>
+          <div id="overallLabel" style="font-size:15px;font-weight:800;color:var(--text-muted);margin-bottom:6px;">--</div>
+          <div class="divider-line" style="margin:6px 0;"></div>
           ${infoRow("Total Parameters", `<span id="totalParamsVal">0</span>`)}
           ${infoRow("Passed", `<span id="passedVal" style="color:#4ade80;">0</span>`)}
           ${infoRow("Failed", `<span id="failedVal" style="color:#ff8a8a;">0</span>`)}
-          <button class="btn btn-danger btn-sm" id="lockBtn" style="width:100%;justify-content:center;margin:8px 0;">${icon("check_circle", 13)} LOCK</button>
-          <button class="btn btn-ghost btn-sm" id="viewReportBtn" style="width:100%;justify-content:center;margin-bottom:8px;display:none;">${icon("download", 13)} View Report</button>
+          <button class="btn btn-danger btn-sm" id="lockBtn" style="width:100%;justify-content:center;margin:6px 0;">${icon("check_circle", 13)} LOCK</button>
+          <button class="btn btn-ghost btn-sm" id="viewReportBtn" style="width:100%;justify-content:center;display:none;">${icon("download", 13)} View Report</button>
         </div>
       </div>
       </div>
@@ -228,14 +226,32 @@
     wireEvents();
   }
 
+  // Shrinks the whole dashboard (CSS zoom) just enough that it fits the
+  // window height with no scrolling, on any screen size / display scaling.
+  // Measured at zoom 1 so the result never depends on the previous zoom.
+  function fitToScreen() {
+    const page = document.getElementById("page-dashboard");
+    const root = document.getElementById("dashRoot");
+    const main = document.getElementById("main");
+    if (!root || !main || !page.classList.contains("active")) return;
+    root.style.zoom = "";
+    const cs = getComputedStyle(page);
+    const availH =
+      main.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 2;
+    const needH = root.offsetHeight;
+    if (needH > availH && availH > 0) {
+      root.style.zoom = String(Math.max(availH / needH, 0.6));
+    }
+  }
+
   function infoRow(label, valueHtml) {
-    return `<div class="flex-between" style="padding:5px 0;font-size:12px;">
+    return `<div class="flex-between" style="padding:3px 0;font-size:12px;">
       <span style="color:var(--text-muted);">${label}</span>${valueHtml}
     </div>`;
   }
 
   function miniStat(label, id, value) {
-    return `<div style="flex:1;background:var(--bg-elevated);border-radius:8px;padding:8px 4px;">
+    return `<div style="flex:1;background:var(--bg-elevated);border-radius:8px;padding:5px 4px;">
       <div style="font-size:9.5px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">${label}</div>
       <div id="${id}" class="tabular" style="font-size:15px;font-weight:800;margin-top:2px;">${value}</div>
     </div>`;
@@ -452,6 +468,7 @@
   function renderParams() {
     const body = document.getElementById("paramTableBody");
     if (!body) return;
+    const rowCountChanged = body.children.length !== parameters.length;
     let pass = 0,
       fail = 0,
       pending = 0;
@@ -482,6 +499,7 @@
       })
       .join("");
 
+    if (rowCountChanged) fitToScreen();
     document.getElementById("totalParamsVal").textContent = parameters.length;
     document.getElementById("passedVal").textContent = pass;
     document.getElementById("failedVal").textContent = fail;
@@ -608,9 +626,25 @@
 
   // CR-04/4.5: freeze the comparison and compute the final PASS/FAIL, then
   // hand off to the report page (CR-05).
+  // Makes the dev shortcut visible so it is never mistaken for real
+  // hardware behaviour while working on the report page.
+  function markDevMode() {
+    const btn = document.getElementById("lockBtn");
+    if (!btn) return;
+    btn.title = "Dev mode: locking with no run will simulate one";
+  }
+
   async function onLock() {
     if (runLocked) return;
-    const run = await Backend.api().lock_test();
+    let run = await Backend.api().lock_test();
+    if (!run && devMode) {
+      // Dev-only: no JIG attached means no run was ever started, so LOCK is
+      // dead. Simulate a run with plausible measured values and lock that,
+      // purely so the report page can be worked on without hardware.
+      await Backend.api().dev_simulate_run(0);
+      run = await Backend.api().lock_test();
+      if (run) App.toast("Simulated run locked (dev mode)", "success");
+    }
     if (!run) {
       App.toast("Start a test before locking", "error");
       return;
@@ -628,6 +662,8 @@
 
     if (window.Pages.report) await window.Pages.report.open(run);
     App.showPage("report");
+    // Straight to the first scan field so the operator can scan immediately.
+    if (window.Pages.report) window.Pages.report.focusFirstQr();
   }
 
   function onRunStarted(run) {
@@ -712,6 +748,10 @@
   window.Pages.dashboard = {
     async onInit() {
       render();
+      // Dev-only shortcuts (see onLock) are off unless the backend was
+      // launched from source with --dev.
+      devMode = !!(await Backend.api().is_dev_mode());
+      if (devMode) markDevMode();
       phases = await Backend.api().get_phases();
       document.getElementById("totalStepsVal").textContent = phases.length;
       document.getElementById("pendingStepsVal").textContent = phases.length;
@@ -720,6 +760,10 @@
 
       parameters = await Backend.api().get_parameters();
       renderParams();
+
+      // Refit whenever the available area changes (window resize, update
+      // banner appearing, ...). Zoom changes don't resize #main, so no loop.
+      new ResizeObserver(fitToScreen).observe(document.getElementById("main"));
 
       await loadPorts();
       const info = await Backend.api().get_connection_info();
@@ -751,6 +795,7 @@
       ];
 
       startTick();
+      requestAnimationFrame(fitToScreen);
     },
     onHide() {
       unsubscribers.forEach((fn) => fn());

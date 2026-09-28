@@ -42,6 +42,10 @@
             <label>Year</label>
             <select id="lotYear"></select>
           </div>
+          <div class="field">
+            <label>Quantity</label>
+            <input type="number" id="lotQuantity" min="1" step="1" placeholder="Number of chargers in this lot" />
+          </div>
           <button class="btn btn-primary" id="lotCreateBtn" style="width:100%;justify-content:center;margin-top:6px;">${icon("check_circle", 14)} Create Lot</button>
         </div>
 
@@ -63,7 +67,7 @@
         </div>
         <table class="data-table">
           <thead><tr>
-            <th>Lot Code</th><th>Month</th><th>Year</th><th>Prefix</th>
+            <th>Lot Code</th><th>Month</th><th>Year</th><th>Prefix</th><th>Quantity</th>
             <th title="Next running serial for this lot's exact Voltage/Variant/Connector/EMS combo - shared with any other lot using that same combo, not unique per lot row">Next Serial No.</th>
             <th>Created</th>
           </tr></thead>
@@ -120,7 +124,7 @@
     const body = document.getElementById("lotTableBody");
     if (!body) return;
     if (!lots.length) {
-      body.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">No lots created yet</td></tr>`;
+      body.innerHTML = `<tr><td colspan="7"style="text-align:center;color:var(--text-muted);">No lots created yet</td></tr>`;
       return;
     }
     body.innerHTML = lots
@@ -130,6 +134,7 @@
           <td>${l.month_code}</td>
           <td>${l.year_code}</td>
           <td class="tabular">${l.prefix}</td>
+          <td class="tabular">${l.quantity ?? "--"}</td>
           <td class="tabular">${String(l.next_seq || 1).padStart(5, "0")}</td>
           <td>${l.created_at ? new Date(l.created_at).toLocaleString(undefined, { hour12: false }) : "--"}</td>
         </tr>`,
@@ -159,6 +164,13 @@
   }
 
   async function onCreateLot() {
+    const qtyInput = document.getElementById("lotQuantity");
+    const quantity = Number(qtyInput.value);
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      App.toast("Enter a quantity of 1 or more", "error");
+      qtyInput.focus();
+      return;
+    }
     const codes = {
       voltage_amp_code: document.getElementById("lotVoltageAmp").value,
       variant_code: document.getElementById("lotVariant").value,
@@ -166,6 +178,7 @@
       ms_id_code: document.getElementById("lotMsId").value,
       month_code: document.getElementById("lotMonth").value,
       year_code: document.getElementById("lotYear").value,
+      quantity,
     };
     const btn = document.getElementById("lotCreateBtn");
     btn.disabled = true;
@@ -173,6 +186,7 @@
       const res = await Backend.api().create_lot(codes);
       if (res.ok) {
         App.toast(`Lot ${res.lot.lot_code_display} created (${res.lot.prefix})`, "success");
+        qtyInput.value = "";
         await loadLots();
       } else {
         App.toast(res.error || "Failed to create lot", "error");

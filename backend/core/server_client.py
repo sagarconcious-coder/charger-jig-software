@@ -147,7 +147,7 @@ def get_lot_options(session: ServerSession) -> dict:
 
 def create_lot(session: ServerSession, codes: dict) -> dict:
     """codes: voltage_amp_code, variant_code, connector_code, ms_id_code,
-    month_code, year_code. Returns the new lot record (id, lot_code, prefix, ...)."""
+    month_code, year_code, quantity. Returns the new lot record (id, lot_code, prefix, ...)."""
     return session.request("POST", _LOTS_PATH, json_body=codes)
 
 

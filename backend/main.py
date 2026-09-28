@@ -7,12 +7,11 @@ import webview
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from backend.bridge import Api, bundled_root
+from backend.bridge import DEV_MODE, Api, bundled_root
 
 FRONTEND_DIR = bundled_root() / "frontend"
 FRONTEND_INDEX = FRONTEND_DIR / "index.html"
 
-DEV_MODE = "--dev" in sys.argv
 
 
 def _start_dev_reloader(window) -> None:

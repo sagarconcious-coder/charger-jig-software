@@ -397,3 +397,18 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
   box-shadow: var(--shadow-pop);
 }
 .modal-card .field { margin-bottom: 10px; }
+
+/* ---- Dashboard: compact single-screen layout --------------------------------------------- */
+
+.field-inline { flex-direction: row; align-items: center; gap: 8px; margin-bottom: 0; }
+.field-inline input, .field-inline select { padding: 6px 9px; }
+
+#page-dashboard { padding: 12px 16px; }
+#page-dashboard .card-header { padding: 8px 14px; }
+#page-dashboard .compare-head,
+#page-dashboard .compare-row { grid-template-columns: 1.4fr 1fr 1fr; }
+#page-dashboard .compare-row { padding: 4px 10px; }
+#page-dashboard .compare-row-label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+#page-dashboard .compare-row-label .btn { padding: 2px 7px; font-size: 10.5px; gap: 4px; }
+#page-dashboard table.data-table thead th { padding: 6px 12px; }
+#page-dashboard table.data-table tbody td { padding: 4px 12px; }

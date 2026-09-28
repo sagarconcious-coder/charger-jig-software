@@ -38,7 +38,7 @@ class SerialWorker:
         self.parse_error = Signal()
         self.connection_lost = Signal()
         self.connected = Signal()
-        self.handshake_ack = Signal()  # fired once the JIG echoes the baudrate-set ack
+        self.handshake_ack = Signal()  # fired on every valid frame from the JIG (ack or CAN data)
 
     def write_frame(self, mld: int, can_id: int, payload: bytes) -> None:
         frame = build_frame(mld, can_id, payload)
@@ -106,12 +106,13 @@ class SerialWorker:
                 self._ser.close()
 
     def _dispatch(self, frame: ParsedFrame) -> None:
-        # frame_received still receives every frame (including the ack, same
-        # as before - CanBus._on_frame already special-cases MLD_BAUDRATE_ACK
-        # as a log-only entry) so downstream behavior is unchanged; this just
-        # additionally flags the ack for connect_to()'s handshake wait below.
+        # Any well-formed frame proves the JIG is alive on this port, not just
+        # the baudrate-set ack: some JIG firmware (seen on FW 1.2) streams CAN
+        # frames without ever echoing the ack, and requiring it specifically
+        # made connect_to() tear down a perfectly working link.
         if frame.mld == MLD_BAUDRATE_ACK:
-            self.handshake_ack.emit()
+            logger.info("Serial %s: baudrate-set ack received", self._port_name)
+        self.handshake_ack.emit()
         self.frame_received.emit(frame)
 
     def stop(self) -> None:
@@ -125,12 +126,12 @@ class SerialLink:
     # before giving up and reporting failure to the caller.
     CONNECT_TIMEOUT = 3.0
 
-    # How much longer, after the port opens, to wait for the JIG to echo
-    # back the baudrate-set ack before treating the connection as bad. Opening
+    # How much longer, after the port opens, to wait for the first valid
+    # frame from the JIG before treating the connection as bad. Opening
     # the wrong COM port (e.g. some other device that enumerated where the
     # JIG's USB-serial adapter usually shows up) succeeds at the OS level
     # with zero indication anything is wrong - the port "connects" but no
-    # frames ever arrive. Requiring the ack catches that at connect time
+    # frames ever arrive. Requiring a frame catches that at connect time
     # instead of leaving the UI stuck showing "Connected" with a dead feed.
     HANDSHAKE_TIMEOUT = 2.0
 

@@ -158,7 +158,14 @@
       el.addEventListener("input", updateGenerateButtonVisibility);
       el.addEventListener("blur", onQrCommit);
       el.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") el.blur();
+        if (e.key !== "Enter") return;
+        // Commit directly instead of el.blur(). Going through blur means
+        // focus is already leaving this input by the time the next field
+        // unlocks, so the focus() below would be fighting the browser's own
+        // focus change. preventDefault stops a scanner's trailing Enter from
+        // submitting anything.
+        e.preventDefault();
+        onQrCommit(e);
       });
     });
     document.getElementById("reportLotSel").addEventListener("change", (e) => {
@@ -176,10 +183,10 @@
     loadLots();
   }
 
-  // Fires once a QR field is left (blur, or Enter which triggers a blur) -
-  // i.e. once the scan/typing into it is actually done. Re-renders (to
-  // unlock the next field, or re-lock later ones if this value was cleared)
-  // only when this field's filled/empty state actually changed.
+  // Fires once a QR field's scan/typing is done - on blur, or immediately on
+  // Enter. Unlocks the next field (or re-locks later ones if this value was
+  // cleared) only when this field's filled/empty state actually changed, so
+  // the Enter-then-blur pair commits the same value twice harmlessly.
   function onQrCommit(e) {
     const key = e.target.dataset.key;
     const field = QR_FIELDS.find((f) => f.key === key);
@@ -198,34 +205,58 @@
     const isFilled = !!qrValues[key];
     if (wasFilled !== isFilled) {
       const idx = QR_FIELDS.findIndex((f) => f.key === key);
-      render();
-      // Move focus to the next field once it unlocks, so an operator scanning
-      // straight through doesn't have to click into the next box by hand.
-      // Deferred to the next frame: render() just replaced the whole
-      // #page-report subtree via innerHTML (destroying the input that's
-      // still mid-blur), and focusing the freshly-inserted element in the
-      // same tick races that reflow - the webview can drop the focus call
-      // and leave nothing focused, which is why the cursor never lands.
+      // Unlock/re-lock in place rather than calling render(). render() sets
+      // root.innerHTML, which destroys this very input while it is still
+      // mid-blur; the webview then aborts the pending focus transfer, so the
+      // next field ends up focused in the DOM but never receives keyboard
+      // input - it looks active and silently swallows every keystroke.
+      // Toggling readOnly touches no node identity, so focus stays valid.
+      syncQrLocks();
       const nextField = isFilled && QR_FIELDS[idx + 1];
       if (nextField) {
-        requestAnimationFrame(() => {
-          const nextEl = document.getElementById(`report_${nextField.key}`);
-          if (nextEl) nextEl.focus();
-        });
+        const nextEl = document.getElementById(`report_${nextField.key}`);
+        if (nextEl) nextEl.focus();
       }
-    } else {
-      updateGenerateButtonVisibility();
     }
+    updateGenerateButtonVisibility();
   }
 
+  // Applies the sequential-unlock rule to the existing inputs: a field is
+  // editable once every field before it is filled. Mirrors the readonly
+  // decision render() makes on first paint, without rebuilding the DOM.
+  function syncQrLocks() {
+    QR_FIELDS.forEach((f, i) => {
+      const el = document.getElementById(`report_${f.key}`);
+      if (!el) return;
+      const prevFilled = i === 0 || QR_FIELDS.slice(0, i).every((pf) => qrValues[pf.key]);
+      const locked = !!generatedSerial || !prevFilled;
+      el.readOnly = locked;
+      el.placeholder = prevFilled ? `Scan or enter ${f.label}` : "Scan previous QR first";
+      // A field that just re-locked (its predecessor was cleared) must not
+      // keep a stale value in the report.
+      if (locked && !generatedSerial && !prevFilled && el.value) {
+        el.value = "";
+        qrValues[f.key] = "";
+      }
+    });
+  }
+
+  // Reads the live inputs WITHOUT touching qrValues. It must stay pure: it
+  // runs on every keystroke (via updateGenerateButtonVisibility), and
+  // onQrCommit decides whether to unlock the next field by comparing the
+  // committed qrValues against the new one. Writing here made qrValues
+  // already-current by commit time, so wasFilled === isFilled always held,
+  // the unlock branch never ran, and every field after the first stayed
+  // readonly - focused, receiving keystrokes, but refusing all input.
   function collectQrValues() {
+    const out = {};
     QR_FIELDS.forEach((f) => {
       const el = document.getElementById(`report_${f.key}`);
       let value = el ? el.value.trim() : "";
       if (value && f.prefix && !value.startsWith(f.prefix)) value = "";
-      qrValues[f.key] = value;
+      out[f.key] = value;
     });
-    return qrValues;
+    return out;
   }
 
   // Generate Serial Number only becomes visible once a lot is selected and
@@ -320,6 +351,12 @@
     onInit() {},
     onShow() {},
     onHide() {},
+    // Called by dashboard.js right after LOCK navigates here, so the
+    // operator can scan the Control Board QR without clicking first.
+    focusFirstQr() {
+      const el = document.getElementById(`report_${QR_FIELDS[0].key}`);
+      if (el && !el.readOnly) el.focus();
+    },
     // Called by dashboard.js right before navigating here after LOCK.
     // Report page never silently reuses a prior run's identification
     // fields (4.6) - each open() call re-renders from a fresh, blank form.

@@ -40,13 +40,12 @@ def export_csv(run: TestRun, parameters: list[TestParameter], path: str | Path) 
         writer.writerow(["Jig Firmware Version", run.jig_firmware_version or "--"])
         writer.writerow(["Jig Hardware Version", run.jig_hardware_version or "--"])
         writer.writerow([])
-        writer.writerow(["Parameter", "Unit", "Expected", "Tolerance", "Measured", "Deviation", "Deviation %", "Status"])
+        writer.writerow(["Parameter", "Unit", "Expected", "Tolerance", "Measured", "Deviation", "Status"])
         for p in parameters:
             writer.writerow([
                 p.name, p.unit, p.expected_value, p.tolerance,
                 p.measured_value if p.measured_value is not None else "",
-                p.deviation_value if p.deviation_value is not None else "",
-                f"{p.deviation_pct:.2f}" if p.deviation_pct is not None else "",
+                f"{p.deviation_value:.3f}" if p.deviation_value is not None else "",
                 p.status.value,
             ])
 
@@ -195,19 +194,19 @@ def export_pdf(run: TestRun, parameters: list[TestParameter], path: str | Path) 
         Spacer(1, 1.5 * mm),
     ]
 
-    header = ["#", "Parameter", "Unit", "Expected", "Tolerance", "Measured", "Dev %", "Status"]
+    header = ["#", "Parameter", "Unit", "Expected", "Tolerance", "Measured", "Deviation", "Status"]
     rows = [header]
     status_rows: list[tuple[int, str]] = []
     for idx, p in enumerate(parameters, start=1):
         rows.append([
             str(idx), p.name, p.unit, f"{p.expected_value:.3f}", f"±{p.tolerance:.3f}",
             f"{p.measured_value:.3f}" if p.measured_value is not None else "--",
-            f"{p.deviation_pct:+.2f}%" if p.deviation_pct is not None else "--",
+            f"{p.deviation_value:+.3f}" if p.deviation_value is not None else "--",
             p.status.value,
         ])
         status_rows.append((idx, p.status.value))
 
-    table = Table(rows, repeatRows=1, colWidths=[9 * mm, 42 * mm, 14 * mm, 24 * mm, 22 * mm, 24 * mm, 20 * mm, 20 * mm])
+    table = Table(rows, repeatRows=1, colWidths=[9 * mm, 39 * mm, 12 * mm, 23 * mm, 22 * mm, 23 * mm, 23 * mm, 19 * mm])
     style_cmds = [
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(_NAVY)),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),

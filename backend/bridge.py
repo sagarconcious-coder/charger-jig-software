@@ -55,6 +55,10 @@ def writable_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+# Dev-only affordances (simulated test run so the report page can be opened
+# without a JIG attached). Never true in a frozen build.
+DEV_MODE = "--dev" in sys.argv and not getattr(sys, "frozen", False)
+
 ROOT = bundled_root()
 WRITABLE_ROOT = writable_root()
 DEFAULT_JIG_DBC = ROOT / "can_jig_busmaster.dbc"
@@ -435,6 +439,11 @@ class Api:
             self._link = None
             self._connected_port = "--"
             self._connected_baud = "--"
+            # The port may have opened (pushing connected=True to the UI) and
+            # even delivered a few frames before the handshake check failed;
+            # undo both so the UI doesn't sit on "CONNECTED" with stale values.
+            self.test_engine.reset_live_data()
+            self._push("connection", {"connected": False, "reason": error})
             return {"ok": False, "error": error or f"Failed to open {port}"}
 
         self._connected_port = port
@@ -490,6 +499,59 @@ class Api:
     def lock_test(self) -> dict | None:
         run = self.test_engine.lock()
         return run.to_dict() if run else None
+
+    # ---- Dev-only helpers ---------------------------------------------
+    def is_dev_mode(self) -> bool:
+        """True only when launched as `python -m backend.main --dev` from source.
+        The frontend uses this to enable hardware-free shortcuts (see
+        dev_simulate_run) - a frozen .exe always reports False."""
+        return DEV_MODE
+
+    def dev_simulate_run(self, fail_count: int = 0) -> dict | None:
+        """Starts a run and fills every parameter with a plausible measured
+        value so LOCK produces a real report without a JIG attached.
+
+        Values are derived from each parameter's own configured expected value
+        and tolerance, so the report shows realistic numbers and deviations.
+        `fail_count` parameters are deliberately pushed outside tolerance so
+        the FAIL path and the overall-result badge can be exercised too."""
+        if not DEV_MODE:
+            return None
+
+        run = self.test_engine.start_run()
+        # Seed the signals that only ever arrive over CAN, so the report's
+        # firmware/hardware/ambient rows render values instead of "--".
+        from .core.models import Source
+
+        self.test_engine._latest_signals[Source.JIG].update(
+            {"firmware_version": 1.0, "hardware_version": 1.0, "temp2_c": 26.5}
+        )
+        self.test_engine._latest_signals[Source.DUT].update(
+            {"FirmwareVersion": 1.4, "HardwareVersion": 2.0}
+        )
+
+        params = self.test_engine.parameters
+        for idx, param in enumerate(params):
+            expected = param.expected_value
+            if expected is None:
+                # live_expected parameters normally take their expected value
+                # from a JIG frame; with no hardware there is none, so invent
+                # one rather than leaving the row PENDING.
+                expected = 100.0
+                param.expected_value = expected
+            tol = param.tolerance or 0.0
+            if idx < fail_count:
+                # Just outside tolerance - a clear, unambiguous FAIL.
+                offset = (tol or abs(expected) * 0.1 or 1.0) * 1.5
+            else:
+                # Comfortably inside tolerance, but not an exact match, so the
+                # Deviation / Dev % columns render something meaningful.
+                offset = tol * 0.4
+            param.measured_value = round(expected + offset, 3)
+            param.evaluate()
+
+        self.test_engine.parameters_updated.emit(params)
+        return run.to_dict()
 
     # ---- Calibration ---------------------------------------------
     def send_calibration(self, param_name: str, run_dict: dict | None = None) -> dict:
@@ -689,7 +751,17 @@ class Api:
             serial = report.get("serial_number") or report.get("run_id") or "report"
             safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in str(serial))
             path = REPORTS_DIR / f"{safe_name}.json"
-            path.write_text(json.dumps(report, indent=2, default=str))
+            # Deviation % is kept server-side but left out of the local copy,
+            # matching the PDF/CSV exports (which show absolute deviation only).
+            local = {
+                **report,
+                "parameters": [
+                    {k: v for k, v in p.items() if k != "deviation_pct"}
+                    if isinstance(p, dict) else p
+                    for p in report.get("parameters") or []
+                ],
+            }
+            path.write_text(json.dumps(local, indent=2, default=str))
             return str(path)
         except OSError as exc:
             print(f"Failed to save report locally: {exc}", file=sys.stderr)
