@@ -1,8 +1,16 @@
-pywebview>=5.3
-pyserial>=3.5
-cantools>=39.4
-reportlab>=4.2
-pyinstaller>=6.21
-watchdog>=4.0
-requests>=2.31
-qrcode>=7.4
+# Pinned to the exact versions the v1.0.11 release was built with. The
+# release workflow does a fresh `pip install` per tag, so unpinned (>=)
+# ranges silently pulled newer libraries into v1.0.12 - notably pythonnet
+# 3.1.0 -> 3.2.0, which pywebview uses for every Python <-> window call.
+# Bump these deliberately, one at a time, and test on the bench.
+pywebview==6.2.1
+pythonnet==3.1.0
+clr-loader==0.3.1
+pyserial==3.5
+cantools==44.1.0
+reportlab==5.0.1
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.7
+watchdog==6.0.0
+requests==2.34.2
+qrcode==8.2
