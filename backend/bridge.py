@@ -13,6 +13,7 @@ import webview
 from .core.can_bus import CanBus
 from .core.config_auth import ConfigAuth
 from .core.dbc_store import DbcLoadError, DbcStore
+from .core.diagnostics import system_summary
 from .core.logging_store import list_serial_ports
 from .core.models import LogEntry
 from .core.packet import MLD_CAN_FRAME
@@ -91,6 +92,7 @@ def _setup_logging() -> None:
 
 _setup_logging()
 logger = logging.getLogger(__name__)
+logger.info("App %s starting (%s) on %s", __version__, "exe" if getattr(sys, "frozen", False) else "source", system_summary())
 
 # Calibration_Comm_OverCAN command bytes (see DBC comment on message 2432505162).
 CALIBRATION_COMMANDS = {"Battery Voltage": ord("A"), "Battery Current": ord("B")}
@@ -178,6 +180,7 @@ class UiPump:
 
     TICK_SECONDS = 0.05  # 20 Hz UI refresh - fast enough to feel live, slow enough to batch bursts
     MAX_QUEUE = 20_000  # backpressure valve; see _drain_once's overflow handling
+    SLOW_PUSH_SECONDS = 5.0
 
     def __init__(self) -> None:
         self._window: webview.Window | None = None
@@ -241,8 +244,22 @@ class UiPump:
         calls = "".join(
             f"window.__onBackendEvent({_js(event)}, {_js(data)});" for event, data in batch
         )
+        started = time.monotonic()
         try:
             self._window.evaluate_js(calls)
+            took = time.monotonic() - started
+            if took >= self.SLOW_PUSH_SECONDS:
+                # pywebview waits on the page with no timeout; a push this slow
+                # means the screen was frozen for that long (data kept being
+                # read meanwhile). Distinguishes a UI freeze from a silent JIG.
+                logging.getLogger(__name__).warning(
+                    "Screen update took %.1fs for %d event(s) - window was unresponsive", took, len(batch)
+                )
+            if self._dropped:
+                logging.getLogger(__name__).warning(
+                    "%d screen update(s) dropped because the window couldn't keep up", self._dropped
+                )
+                self._dropped = 0
         except Exception:  # noqa: BLE001 - window may be closing/gone
             logging.getLogger(__name__).exception(
                 "evaluate_js failed for a batch of %d event(s); window may be "
@@ -354,6 +371,10 @@ class Api:
         self.can_bus.log_entry.connect(lambda e: self._push("log", e.to_dict()))
         self.can_bus.connected.connect(lambda: self._push("connection", {"connected": True}))
         self.can_bus.disconnected.connect(self._on_can_disconnected)
+        self.can_bus.data_stalled.connect(
+            lambda seconds: self._push("data_status", {"stalled": True, "seconds": seconds})
+        )
+        self.can_bus.data_resumed.connect(lambda _seconds: self._push("data_status", {"stalled": False}))
 
         self.test_engine.parameters_updated.connect(
             lambda params: self._push("parameters", [p.to_dict() for p in params])
@@ -378,6 +399,7 @@ class Api:
 
     def _on_can_disconnected(self, reason: str) -> None:
         self._push("connection", {"connected": False, "reason": reason})
+        self._push("data_status", {"stalled": False})
         # An unexpected link drop (cable pulled, serial error) needs the same
         # stale-data cleanup as the explicit Disconnect button.
         self.test_engine.reset_live_data()
@@ -426,9 +448,11 @@ class Api:
         return list_serial_ports()
 
     def connect(self, port: str, baudrate: int) -> dict:
+        logger.info("Operator clicked Connect: %s at %s", port, baudrate)
         if self._link is not None:
             self.can_bus.detach()
             self._link = None
+        self._push("data_status", {"stalled": False})  # fresh link, clear any old warning
 
         self._link = SerialLink()
         self.can_bus.attach(self._link)
@@ -444,6 +468,7 @@ class Api:
             # undo both so the UI doesn't sit on "CONNECTED" with stale values.
             self.test_engine.reset_live_data()
             self._push("connection", {"connected": False, "reason": error})
+            logger.warning("Connect to %s failed: %s", port, error)
             return {"ok": False, "error": error or f"Failed to open {port}"}
 
         self._connected_port = port
@@ -454,8 +479,10 @@ class Api:
         return result
 
     def disconnect(self) -> dict:
+        logger.info("Operator clicked Disconnect")
         self.can_bus.detach()
         self._link = None
+        self._push("data_status", {"stalled": False})
         self._connected_port = "--"
         self._connected_baud = "--"
         # Clear cached CAN signals and live measured/expected values so the
@@ -613,7 +640,11 @@ class Api:
         print(log_line, file=sys.stderr)
         self.can_bus.log_entry.emit(LogEntry.now("INFO", log_line))
 
-        self._link.write_frame(MLD_CAN_FRAME, message.frame_id, payload)
+        try:
+            self._link.write_frame(MLD_CAN_FRAME, message.frame_id, payload)
+        except Exception as exc:  # noqa: BLE001 - e.g. write timeout when the JIG's USB is stuck
+            logger.error("Calibration send failed: %s", exc)
+            return {"ok": False, "error": f"Failed to send to the JIG: {exc}"}
         return {"ok": True, "value": param.expected_value}
 
     # ---- Configuration password (4.8) ---------------------------------------------
