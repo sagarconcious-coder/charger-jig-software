@@ -1,0 +1,41 @@
+# Exact library set of the v1.0.13 release (built 2026-10-07 08:28 UTC by
+# .github/workflows/release.yml on Python 3.11, Windows). requirements.txt
+# pins the direct dependencies; this file also fixes every indirect one.
+#
+# Regenerate after deliberately bumping requirements.txt:
+#   uv pip compile requirements.txt --python-version 3.11 --python-platform windows --no-header --no-annotate -o requirements-lock.txt
+# Reproduce a release build locally:
+#   pip install -r requirements-lock.txt && pyinstaller charger_jig.spec
+altgraph==0.17.5
+argparse-addons==0.12.0
+bitstruct==8.23.0
+bottle==0.13.4
+cantools==44.1.0
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.2
+clr-loader==0.3.1
+colorama==0.4.6
+crccheck==1.3.1
+idna==3.20
+packaging==26.3
+pefile==2024.8.26
+pillow==12.3.0
+proxy-tools==0.1.0
+pycparser==3.0
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.7
+pyserial==3.5
+python-can==4.6.1
+pythonnet==3.1.0
+pywebview==6.2.1
+pywin32-ctypes==0.2.3
+qrcode==8.2
+reportlab==5.0.1
+requests==2.34.2
+setuptools==84.0.0
+textparser==0.26.2
+typing-extensions==4.16.0
+urllib3==2.8.0
+watchdog==6.0.0
+wrapt==1.17.3
